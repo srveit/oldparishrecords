@@ -702,6 +702,65 @@ def confirm_reading(code, entry_id, field, token, occurrence, ctx, client):
     finally:
         _unlock(lf)
 
+# ---------- inline reading changes (readings.py): choose_reading (word[?|alt]), edit_reading (one word), undo_reading ----------
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import readings as RD
+
+def _rd_ctx(): return RD.Ctx(STAGEA, STAGEB, ENTRIES, BACKUPS, NOTIFY_QUEUE)
+
+def _rd_run_status():
+    if not RUN_STATUS: return ''
+    pr = subprocess.run(['python3', 'status.py'], cwd=DASH, capture_output=True, text=True, timeout=120)
+    return 'status.py ok' if pr.returncode == 0 else f'status.py failed: {pr.stderr[-300:]}'
+
+def reading_change(kind, code, entry_id, field, token, occurrence, ctx, value, pick, client):
+    row, img = _row_meta(code)
+    try: rec, info = RD.change(_rd_ctx(), code, str(row.get('transcription', {}).get('status', '')), kind, entry_id, field, token, occurrence, ctx, value, pick)
+    except RD.Refuse as ex: raise Reject(str(ex), ex.http)
+    rr = next((x for x in json.load(open(os.path.join(DASH, 'records.json'), encoding='utf-8'))['records'] if x['code'] == code), {})
+    stamp = rec['time']; action = 'choose_reading' if kind == 'choice' else 'edit_reading'
+    _feedback_add(code, entry_id, token, occurrence, stamp)
+    desc = f'{token} -> {rec["new"]}' + (f' (option {pick + 1} of {len(rec["options"])})' if kind == 'choice' else '') + (' [confirms the reading]' if rec['confirms_reading'] else '')
+    with open(os.path.join(ENTRIES, '_approvals.log'), 'a') as f:
+        f.write(f'{stamp}\taction={action}\trow {row.get("id")}\t{code}\t{entry_id}\t{rec["field"]}\t{desc}\tmd={"yes" if rec["md_change"] else "no"}'
+                f'\tstage_b_updated={len(info["stage_b_updated"])}\tclient={client}\n')
+    evt = {'time': stamp, 'kind': 'choose_reading' if kind == 'choice' else 'reading_edited', 'action': action, 'row': row.get('id'), 'code': code,
+           'book': rr.get('book'), 'page': rr.get('page'), 'image_id': img, 'entry_id': entry_id, 'field': rec['field'],
+           'token_before': token, 'token_after': rec['new'], 'occurrence': occurrence, 'context_before': rec['context_before'],
+           'context_after': rec['context_after'], 'change_id': rec['change_id'], 'confirms_reading': rec['confirms_reading'],
+           'source_file': rec['stage_a_file'], 'md_file': (rec['md_change'] or {}).get('file'), 'md_note': rec['md_note'],
+           'other_fields_changed': ['.'.join(map(str, c['path'])) for c in rec['stage_a_changes'][1:]], 'other_fields_skipped': rec['other_fields_skipped'],
+           'stage_b_updated': info['stage_b_updated'], 'stage_b_locked_with_token': rec['stage_b_locked_with_token'], 'stage_b_review': rec['stage_b_review'],
+           'crop_paths': _crop_paths(img, entry_id) if rec['field'] != 'md' else [], 'by': 'Stephen dashboard',
+           'for': ['Chief', 'Entry Transcriber', 'Record Extractor']}
+    if kind == 'choice': evt.update({'options': rec['options'], 'index': pick})
+    else: evt['learn'] = 'Entry Transcriber: add a curated line to stageA/_learned_readings.jsonl (before/after/context/hand/pattern) if this edit teaches a reading'
+    notify(evt)
+    return {'ok': True, 'action': action, 'code': code, 'entry_id': entry_id, 'field': rec['field'], 'token': token, 'new': rec['new'],
+            'picked': rec['new'], 'options': rec.get('options'), 'index': pick, 'change_id': rec['change_id'], 'time': stamp,
+            'confirms_reading': rec['confirms_reading'], 'md_updated': bool(rec['md_change']), 'stage_b_updated': len(info['stage_b_updated']),
+            'backup_dir': info['backup_dir'], 'status': _rd_run_status()}
+
+def undo_reading(code, change_id, client):
+    row, img = _row_meta(code)
+    try: rec, info = RD.undo(_rd_ctx(), code, change_id)
+    except RD.Refuse as ex: raise Reject(str(ex), ex.http)
+    stamp = rec['undone_at']
+    _feedback_add(code, rec['entry_id'], rec['token'], rec.get('occurrence') or 1, stamp)
+    with open(os.path.join(ENTRIES, '_approvals.log'), 'a') as f:
+        f.write(f'{stamp}\taction=undo_reading\trow {row.get("id")}\t{code}\t{rec["entry_id"]}\t{rec["new"]} -> {rec["token"]} (undo of {rec["type"]} {change_id})'
+                f'\tmd_reverted={info["md_reverted"]}\tstage_b_reverted={len(info["stage_b_reverted"])}\tclient={client}\n')
+    notify({'time': stamp, 'kind': 'choose_reading_undone' if rec['type'] == 'choice' else 'reading_edit_undone', 'action': 'undo_reading',
+            'row': row.get('id'), 'code': code, 'image_id': img, 'entry_id': rec['entry_id'], 'field': rec['field'],
+            'token_before': rec['new'], 'token_after': rec['token'], 'change_id': change_id, 'source_file': rec['stage_a_file'],
+            'md_reverted': info['md_reverted'], 'stage_b_reverted': info['stage_b_reverted'], 'stage_b_skipped': info['stage_b_skipped'],
+            'by': 'Stephen dashboard', 'for': ['Chief', 'Entry Transcriber', 'Record Extractor']})
+    return {'ok': True, 'action': 'undo_reading', 'code': code, 'change_id': change_id, 'undid': rec['type'], 'entry_id': rec['entry_id'],
+            'field': rec['field'], 'token': rec['token'], 'options': RD.parse_alt(rec['token']), 'occurrence': info['occurrence'],
+            'confirm_occurrence': info['confirm_occurrence'], 'context': info['context'], 'time': stamp,
+            'md_reverted': info['md_reverted'], 'stage_b_reverted': len(info['stage_b_reverted']), 'backup_dir': info['backup_dir'], 'status': _rd_run_status()}
+
 class H(http.server.BaseHTTPRequestHandler):
     server_version = 'opr-approve/1'
     def origin_ok(s):
@@ -738,7 +797,7 @@ class H(http.server.BaseHTTPRequestHandler):
             n = int(s.headers.get('Content-Length', 0)); body = json.loads(s.rfile.read(min(n, 20000)) or b'{}')
             code = str(body['code']).strip(); action = str(body.get('action') or 'segmentation').strip()
         except Exception: return s.reply(400, {'ok': False, 'error': 'bad request: JSON body {"code": ...} required'}, origin)
-        if action not in ('segmentation', 'transcription', 'extraction', 'recut', 'approve_transcription_entry', 'confirm_reading', 'selftest', 'segmentation_correction'):
+        if action not in ('segmentation', 'transcription', 'extraction', 'recut', 'approve_transcription_entry', 'confirm_reading', 'selftest', 'segmentation_correction', 'choose_reading', 'edit_reading', 'undo_reading'):
             return s.reply(400, {'ok': False, 'error': f'unknown action {action!r}'}, origin)
         if (action == 'transcription' and not TRANSCRIPTION_APPROVE_ENABLED) or (action == 'extraction' and not EXTRACTION_APPROVE_ENABLED):
             return s.reply(403, {'ok': False, 'error': f'{action} approval is disabled on this server'}, origin)
@@ -754,6 +813,14 @@ class H(http.server.BaseHTTPRequestHandler):
                     occ = body.get('occurrence'); occ = int(occ) if isinstance(occ, (int, str)) and str(occ).isdigit() else None
                     res = confirm_reading(code, str(body.get('entry_id') or ''), str(body.get('field') or 'diplomatic_text'), str(body.get('token') or ''),
                                           occ, body.get('context') if isinstance(body.get('context'), str) else None, s.client())
+                elif action in ('choose_reading', 'edit_reading'):
+                    occ = body.get('occurrence'); occ = int(occ) if isinstance(occ, (int, str)) and str(occ).isdigit() else None
+                    pk = body.get('pick'); pk = int(pk) if isinstance(pk, (int, str)) and str(pk).isdigit() else None
+                    res = reading_change('choice' if action == 'choose_reading' else 'edit', code, str(body.get('entry_id') or ''),
+                                         str(body.get('field') or 'diplomatic_text'), str(body.get('token') or ''), occ,
+                                         body.get('context') if isinstance(body.get('context'), str) else None,
+                                         body.get('value') if isinstance(body.get('value'), str) else None, pk, s.client())
+                elif action == 'undo_reading': res = undo_reading(code, str(body.get('change_id') or ''), s.client())
                 else: res = stage_approve(code, action, s.client())
             s.reply(200, res, origin)
         except Reject as ex: s.reply(ex.http, {'ok': False, 'error': str(ex)}, origin)

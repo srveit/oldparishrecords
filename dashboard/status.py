@@ -114,6 +114,9 @@ def mlink(r):
 
 # ---- Draft extraction pages: out/extraction/<code>.html for every row whose extraction status is Draft ----
 import html as _html, re as _re
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import readings as RD   # alternative readings base[?|alt]: shared with approve_server.py
 def _enum(name):
     m = _re.search(r'_e(\d+)(?:[._]|$)', name); return int(m.group(1)) if m else 10**6
 
@@ -321,25 +324,74 @@ def _confirmed(code):
     except Exception: return []
     return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
 
-def _render_tokens(text, eid, field, conf, E, regained):
-    """HTML for a Stage A text: every <token>[?] gets a one-click confirm control. A token already confirmed by Stephen
-    (listed in _confirmed_readings.json) whose [?] came back in a re-run is shown WITHOUT [?] and reported in `regained`."""
-    out = []; last = 0; cnt = {}
-    mine = [x for x in conf if x.get('entry_id') == eid and x.get('field', 'diplomatic_text') == field]
-    for m in TOKRE.finditer(text):
-        tok = m.group(1); cnt[tok] = cnt.get(tok, 0) + 1; occ = cnt[tok]
-        out.append(E(text[last:m.start()])); last = m.end()
-        before = text[:m.start()]
-        hit = next((x for x in mine if x.get('token') == tok and (before.endswith(str(x.get('context_before', ''))[-12:]) if x.get('context_before') else x.get('occurrence') == occ)), None)
-        if hit:
-            regained.append({'entry_id': eid, 'field': field, 'token': tok, 'occurrence': occ})
-            out.append(f'<span class="tq regained" title="Confirmed by Stephen {E(hit.get("time", ""))}; the source regained [?] and it is hidden here">{E(tok)}</span>')
-            continue
-        ctx = before[-20:]
-        out.append(f'<span class="tq">{E(tok)}<span class="qm">[?]</span></span><button class="ck" onclick="oprConfirm(this)" '
-                   f'data-e="{E(eid)}" data-f="{E(field)}" data-t="{E(tok)}" data-o="{occ}" data-c="{E(ctx)}" title="Confirm this reading (one click)">&#10003;</button>')
+def _render_tokens(text, eid, field, conf, E, regained, locked=False):
+    """HTML for one Stage A text field on the transcription page.
+    - <word>[?]      one-click ✓ confirm (unchanged; a confirmed token whose [?] came back is shown without it, see `regained`)
+    - <word>[?|a|b]  one tap button per option (choose_reading)
+    - any word       double-click / double-tap / long-press to edit it inline (edit_reading)
+    - an active choice/edit (readings.py record) shows as a blue ✓ chip with Undo, never as the old token again
+    Locked/approved entries are read-only: no picker, no editing (the ✓ confirm keeps its existing behaviour)."""
+    mine = [x for x in conf if not x.get('type') and x.get('entry_id') == eid and x.get('field', 'diplomatic_text') == field]
+    chs = [x for x in conf if x.get('type') in ('choice', 'edit') and not x.get('undone') and x.get('entry_id') == eid and x.get('field', 'diplomatic_text') == field]
+    toks = RD.tokens(text); places = []
+    def chip(c):
+        t = str(c.get('time', ''))[11:16]; verb = 'Chose' if c['type'] == 'choice' else 'Saved'
+        und = ('' if locked else f'<button type="button" class="undo" onclick="oprUndo(this)" title="Undo: put the old reading back">Undo</button>')
+        return (f'<span class="tq chosen" title="{E(verb)} by Stephen {E(c.get("time", ""))}; was {E(c.get("token", ""))}">{E(c["new"])}</span>'
+                f'<span class="chz" data-id="{E(c.get("change_id", ""))}">\u2713 {verb} \u201c{E(c["new"])}\u201d at {E(t)}{und}</span>')
+    for c in chs:
+        old, new, cb = c.get('token', ''), c.get('new', ''), c.get('context_before', '')
+        k = RD.locate_lax(text, old, c.get('occurrence'), cb) if old else None
+        if k is not None: places.append((k, k + len(old), chip(c))); continue      # source regained the old token (re-apply pending)
+        t12 = RD._tail(cb); hits = [m for m in range(len(text)) if new and text.startswith(new, m) and (not t12 or RD._tail(text[:m]).endswith(t12))]
+        if len(hits) == 1 or (hits and not t12): places.append((hits[0], hits[0] + len(new), chip(c)))
+    items = list(places); wcnt = {}; qcnt = {}
+    def attrs(tok, occ, s0): return f' data-e="{E(eid)}" data-f="{E(field)}" data-t="{E(tok)}" data-o="{occ}" data-c="{E(text[:s0][-20:])}"'
+    for s0, e0, tok in toks:
+        wcnt[tok] = wcnt.get(tok, 0) + 1; occ = wcnt[tok]
+        m = RD.TOKRE.fullmatch(tok)
+        if m: qcnt[m.group(1)] = qcnt.get(m.group(1), 0) + 1
+        if any(a < e0 and s0 < b for a, b, _ in places): continue
+        am = RD.ALTRE.fullmatch(tok)
+        if am:
+            if locked:
+                items.append((s0, e0, f'{E(tok)}<span class="lockn" title="This entry is approved (locked); readings are read-only">entry approved \u2014 locked</span>')); continue
+            opts = [am.group(1)] + am.group(2).split('|')[1:]
+            btns = ''.join(f'<button type="button" class="opt" data-i="{i}" onclick="oprChoose(this)" title="Use \u201c{E(o)}\u201d (writes it into Stage A)">{E(o)}</button>' for i, o in enumerate(opts))
+            items.append((s0, e0, f'<span class="alt"{attrs(tok, occ, s0)}><span class="tq altq w"{attrs(tok, occ, s0)}>{E(am.group(1))}<span class="qm">[?{E(am.group(2))}]</span></span>'
+                                  f'<span class="altopts" role="group" aria-label="Choose the reading">{btns}</span></span>')); continue
+        if m:
+            base = m.group(1); qocc = qcnt[base]; before = text[:s0]
+            hit = next((x for x in mine if x.get('token') == base and (before.endswith(str(x.get('context_before', ''))[-12:]) if x.get('context_before') else x.get('occurrence') == qocc)), None)
+            if hit:
+                regained.append({'entry_id': eid, 'field': field, 'token': base, 'occurrence': qocc})
+                items.append((s0, e0, f'<span class="tq regained" title="Confirmed by Stephen {E(hit.get("time", ""))}; the source regained [?] and it is hidden here">{E(base)}</span>')); continue
+            items.append((s0, e0, f'<span class="tq{"" if locked else " w"}"{"" if locked else attrs(tok, occ, s0)}>{E(base)}<span class="qm">[?]</span></span><button class="ck" onclick="oprConfirm(this)" '
+                                  f'data-e="{E(eid)}" data-f="{E(field)}" data-t="{E(base)}" data-o="{qocc}" data-c="{E(before[-20:])}" title="Confirm this reading (one click)">&#10003;</button>')); continue
+        items.append((s0, e0, E(tok) if locked else f'<span class="w"{attrs(tok, occ, s0)}>{E(tok)}</span>'))
+    items.sort(key=lambda x: x[0]); out = []; last = 0
+    for s0, e0, h in items:
+        if s0 < last: continue
+        out.append(E(text[last:s0])); out.append(h); last = e0
     out.append(E(text[last:]))
     return ''.join(out)
+
+ALT_CSS = ('.altq .qm{color:#7a4a00}.altopts{display:inline-flex;flex-wrap:wrap;gap:4px;margin:0 4px;vertical-align:middle}'
+           '.opt,.undo,.wcancel{font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-weight:600;cursor:pointer;box-sizing:border-box}'
+           '.opt{font-size:13px;padding:2px 10px;background:#fff;color:#222;border:1.5px solid #555;border-radius:4px}'
+           '.opt:hover{background:#eee}.opt:focus-visible,.undo:focus-visible,.wcancel:focus-visible{outline:3px solid #0072b2;outline-offset:1px}.opt:disabled,.undo:disabled{opacity:.6;cursor:wait}'
+           '.tq.chosen{background:#e8f1fa;border-radius:3px}'
+           '.chz{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 4px;padding:1px 4px 1px 9px;border-radius:12px;background:#e8f1fa;color:#0b4f8a;'
+           'border:1px solid #0072b2;font:600 12px -apple-system,Segoe UI,Roboto,sans-serif;vertical-align:middle;white-space:normal}'
+           '.undo{font-size:12px;padding:1px 8px;background:#fff;color:#0b4f8a;border:1px solid #0072b2;border-radius:10px}'
+           '.lockn{font:italic 12px -apple-system,Segoe UI,Roboto,sans-serif;color:#555;margin:0 4px;white-space:nowrap}'
+           '.w{border-radius:2px}.w:hover{background:#f0f0f0}.w.pressing{background:#e8f1fa;outline:2px solid #0072b2}'
+           '.wedbox{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;vertical-align:middle}'
+           '.wedit{font-family:inherit;font-size:1em;padding:1px 6px;border:2px solid #0072b2;border-radius:4px;background:#fff;color:#000;box-sizing:border-box}'
+           '.wcancel{font-size:12px;padding:1px 8px;background:#fff;color:#333;border:1px solid #888;border-radius:10px}'
+           '@media (pointer:coarse){.opt,.undo,.wcancel{min-height:44px;min-width:44px;font-size:15px;padding:4px 12px}.altopts{gap:6px;margin:4px}'
+           '.chz{min-height:44px;font-size:14px}.wedit{min-height:44px;font-size:16px}'
+           '.w,.tq{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}}')
 
 def _feedback(code):
     """Tolerant reader of stageA/<code>/_feedback_status.json -> {entry_id: {state, oldest_pending, updated_at}}."""
@@ -370,6 +422,55 @@ function oprPost(btn,payload,busy,onOk,errEl){
 function oprErr(el){var e=el.parentNode.querySelector('.ckerr');if(!e){e=document.createElement('span');e.className='ckerr';el.parentNode.insertBefore(e,el.nextSibling);}return e;}
 function oprConfirm(b){var d=b.dataset;oprPost(b,{code:__CODE__,action:'confirm_reading',entry_id:d.e,field:d.f,token:d.t,occurrence:+d.o,context:d.c},'\u2026',
  function(j){var t=b.previousSibling;if(t&&t.classList&&t.classList.contains('tq')){var q=t.querySelector('.qm');if(q)q.remove();t.classList.add('confirmed');}b.remove();},oprErr(b));}
+function oprEsc(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function oprFrag(h){var s=document.createElement('span');s.innerHTML=h;return [].slice.call(s.childNodes);}
+function oprChip(nw,id,tm,tok,verb){return '<span class="tq chosen" title="'+verb+' by Stephen '+oprEsc(tm)+'; was '+oprEsc(tok)+'">'+oprEsc(nw)+'</span><span class="chz" data-id="'+oprEsc(id)+'">\u2713 '+verb+' \u201c'+oprEsc(nw)+'\u201d at '+oprEsc(String(tm||'').slice(11,16))+'<button type="button" class="undo" onclick="oprUndo(this)" title="Undo: put the old reading back">Undo</button></span>';}
+function oprWA(j,t){return ' data-e="'+oprEsc(j.entry_id)+'" data-f="'+oprEsc(j.field)+'" data-t="'+oprEsc(t)+'" data-o="'+oprEsc(j.occurrence||1)+'" data-c="'+oprEsc(j.context||'')+'"';}
+function oprTokHtml(j){var t=String(j.token||''),o=j.options,m;
+ if(o&&(m=t.match(/^(.*?)\[\?(\|.*)\]$/))){var b='';o.forEach(function(x,i){b+='<button type="button" class="opt" data-i="'+i+'" onclick="oprChoose(this)" title="Use \u201c'+oprEsc(x)+'\u201d (writes it into Stage A)">'+oprEsc(x)+'</button>';});
+  return '<span class="alt"'+oprWA(j,t)+'><span class="tq altq w"'+oprWA(j,t)+'>'+oprEsc(m[1])+'<span class="qm">[?'+oprEsc(m[2])+']</span></span><span class="altopts" role="group" aria-label="Choose the reading">'+b+'</span></span>';}
+ if((m=t.match(/^(.*)\[\?\]$/))&&j.confirm_occurrence)return '<span class="tq w"'+oprWA(j,t)+'>'+oprEsc(m[1])+'<span class="qm">[?]</span></span><button class="ck" onclick="oprConfirm(this)" data-e="'+oprEsc(j.entry_id)+'" data-f="'+oprEsc(j.field)+'" data-t="'+oprEsc(m[1])+'" data-o="'+j.confirm_occurrence+'" data-c="'+oprEsc(j.context||'')+'" title="Confirm this reading (one click)">&#10003;</button>';
+ return '<span class="w"'+oprWA(j,t)+'>'+oprEsc(t)+'</span>';}
+function oprChoose(b){var w=b.closest('.alt'),d=w.dataset;oprPost(b,{code:__CODE__,action:'choose_reading',entry_id:d.e,field:d.f,token:d.t,occurrence:+d.o,context:d.c,pick:+b.dataset.i},'\u2026',
+ function(j){var n=oprFrag(oprChip(j.new,j.change_id,j.time,j.token,'Chose'));var e=w.nextSibling;if(e&&e.classList&&e.classList.contains('ckerr'))e.remove();w.replaceWith.apply(w,n);},oprErr(w));}
+function oprUndo(b){var z=b.closest('.chz');oprPost(b,{code:__CODE__,action:'undo_reading',change_id:z.dataset.id},'\u2026',
+ function(j){var p=z.previousSibling,n=oprFrag(oprTokHtml(j));if(p&&p.classList&&p.classList.contains('chosen'))p.remove();var e=z.nextSibling;if(e&&e.classList&&e.classList.contains('ckerr'))e.remove();z.replaceWith.apply(z,n);},oprErr(z));}
+(function(){if(window.oprEdInit)return;window.oprEdInit=1;var ED=null,TP=null,LT={t:0,el:null};
+ function tokEl(t){var e=t&&t.closest?t.closest('.w'):null;return e&&!e.classList.contains('confirmed')&&!e.closest('.wedbox')?e:null;}
+ function done(){ED=null;window.oprEditing=false;}
+ function close(){if(!ED)return;var x=ED;x.cancelled=true;x.box.remove();x.host.style.display='';if(x.ck)x.ck.style.display='';done();}
+ function fail(x,t){x.saving=false;x.inp.disabled=false;x.err.textContent='\u2716 '+t;x.err.style.color='#d55e00';x.inp.focus();}
+ function save(){if(!ED||ED.saving)return;var x=ED,v=x.inp.value;if(v===x.old){close();return;}
+  if(!v.length||/\s/.test(v)){x.err.textContent='\u2716 One word only: not empty, no spaces';x.err.style.color='#d55e00';setTimeout(function(){if(ED===x)x.inp.focus();},0);return;}
+  if(window.oprBusy){x.err.textContent='\u2716 Another save is running; try again in a moment';x.err.style.color='#d55e00';return;}
+  x.saving=true;x.inp.disabled=true;x.err.textContent='Saving\u2026';x.err.style.color='#333';window.oprBusy=true;var d=x.el.dataset;
+  fetch(__URL__,{method:'POST',headers:{'Content-Type':'application/json','X-OPR-Approve':'1'},body:JSON.stringify({code:__CODE__,action:'edit_reading',entry_id:d.e,field:d.f,token:x.old,occurrence:+d.o,context:d.c,value:v})})
+  .then(function(r){if(window.oprAuth&&window.oprAuth.fail(r)){var go=window.oprAuth.login();return {ok:false,_http:401,error:go?'login required, opening the login page\u2026':'login required, please log in again'};}return r.json().then(function(j){j._http=r.status;return j;},function(){return {ok:false,error:'HTTP '+r.status,_http:r.status};});})
+  .then(function(j){window.oprBusy=false;if(!j.ok){fail(x,'Not saved ('+(j._http||'?')+'): '+j.error);return;}
+   var n=oprFrag(oprChip(j.new,j.change_id,j.time,j.token,'Saved'));x.box.replaceWith.apply(x.box,n);x.host.remove();if(x.ck)x.ck.remove();if(ED===x)done();})
+  .catch(function(e){window.oprBusy=false;fail(x,'Could not reach the approve service: '+e);});}
+ function open(el){if(ED||window.oprBusy||!el)return;var host=el.closest('.alt')||el,ck=null;
+  if(host===el&&el.nextSibling&&el.nextSibling.classList&&el.nextSibling.classList.contains('ck'))ck=el.nextSibling;
+  var old=el.dataset.t,box=document.createElement('span'),inp=document.createElement('input'),cb=document.createElement('button'),err=document.createElement('span');
+  box.className='wedbox';inp.type='text';inp.className='wedit';inp.value=old;inp.size=Math.max(4,old.length+2);
+  ['autocapitalize','autocorrect','autocomplete'].forEach(function(a){inp.setAttribute(a,'off');});inp.setAttribute('spellcheck','false');inp.setAttribute('enterkeyhint','done');inp.setAttribute('aria-label','Edit this word (Enter saves, Esc cancels)');
+  cb.type='button';cb.className='wcancel';cb.textContent='Cancel';err.className='ckerr';err.setAttribute('role','alert');
+  box.appendChild(inp);box.appendChild(cb);box.appendChild(err);var after=ck||host;after.parentNode.insertBefore(box,after.nextSibling);host.style.display='none';if(ck)ck.style.display='none';
+  ED={el:el,host:host,ck:ck,box:box,inp:inp,err:err,old:old,saving:false,cancelled:false};window.oprEditing=true;
+  try{var sel=window.getSelection();if(sel)sel.removeAllRanges();}catch(e){}
+  cb.addEventListener('mousedown',function(ev){ev.preventDefault();});cb.addEventListener('touchstart',function(){if(ED)ED.cancelling=true;},{passive:true});cb.addEventListener('click',function(){close();});
+  inp.addEventListener('keydown',function(ev){if(ev.key==='Enter'){ev.preventDefault();save();}else if(ev.key==='Escape'||ev.key==='Esc'){ev.preventDefault();close();}});
+  inp.addEventListener('blur',function(){var x=ED;if(!x||x.saving||x.cancelled||x.cancelling)return;setTimeout(function(){if(ED===x&&!x.saving&&!x.cancelled&&!x.cancelling&&document.activeElement!==x.inp)save();},120);});
+  inp.focus();try{inp.setSelectionRange(0,inp.value.length);}catch(e){}}
+ window.oprEditOpen=open;
+ document.addEventListener('dblclick',function(ev){var el=tokEl(ev.target);if(!el)return;ev.preventDefault();open(el);});
+ document.addEventListener('touchstart',function(ev){var el=tokEl(ev.target);if(!el||ev.touches.length!==1){TP=null;return;}var t=ev.touches[0];TP={el:el,x:t.clientX,y:t.clientY,t0:Date.now(),moved:false};TP.tm=setTimeout(function(){if(TP&&!TP.moved)TP.el.classList.add('pressing');},450);},{passive:true});
+ document.addEventListener('touchmove',function(ev){if(!TP)return;var t=ev.touches[0];if(Math.abs(t.clientX-TP.x)>10||Math.abs(t.clientY-TP.y)>10){TP.moved=true;clearTimeout(TP.tm);TP.el.classList.remove('pressing');}},{passive:true});
+ document.addEventListener('touchend',function(ev){if(!TP)return;var p=TP;TP=null;clearTimeout(p.tm);p.el.classList.remove('pressing');if(p.moved)return;var now=Date.now();
+  if(now-p.t0>=450){ev.preventDefault();LT={t:0,el:null};open(p.el);return;}
+  if(LT.el===p.el&&now-LT.t<400){ev.preventDefault();LT={t:0,el:null};open(p.el);return;}LT={t:now,el:p.el};},{passive:false});
+ document.addEventListener('touchcancel',function(){if(TP){clearTimeout(TP.tm);TP.el.classList.remove('pressing');TP=null;}},{passive:true});
+ document.addEventListener('contextmenu',function(ev){if(tokEl(ev.target)&&window.matchMedia&&matchMedia('(pointer:coarse)').matches)ev.preventDefault();});})();
 function oprEntryApprove(ev,b){ev.preventDefault();ev.stopPropagation();oprPost(b,{code:__CODE__,action:'approve_transcription_entry',entry_id:b.dataset.e},'Approving\u2026',
  function(j){var c=document.createElement('span');c.className='entok';c.textContent='Approved'+(String(j.locked_by||'').match(/T(\d\d:\d\d)/)?' '+j.locked_by.match(/T(\d\d:\d\d)/)[1]:'');
   b.replaceWith(c);if(j.row_approved){var ch=document.querySelector('#stk .chip.segchip');if(ch){ch.style.cssText='';ch.textContent='Approved';}}},
@@ -433,7 +534,7 @@ def write_transcription_pages(rows, man=None):
             if not scr.get(n): figs = '<p class="miss">crop not found (no crop referenced by Stage A)</p>'
             body = figs + ''.join(f'<h3>Stage A diplomatic text <span class="fn">{E(tag)}{(" \u00b7 " + E(l)) if l else ""}</span></h3>'
                            + ''.join((f'<div class="src">margin</div>' if fld == 'diplomatic_margin' else '') +
-                                     f'<pre class="transcription stagea-text">{_render_tokens(t, eid, fld, conf, E, regained)}</pre>' for fld, t in flds)
+                                     f'<pre class="transcription stagea-text">{_render_tokens(t, eid, fld, conf, E, regained, lk)}</pre>' for fld, t in flds)
                            for tag, l, eid, lk, flds in sa[n])
             secs.append(f'<details class="ent" id="{E(en)}"><summary>{summ}</summary><div class="body">{body}</div></details>\n')
         banner = ('<div class="draftban" style="background:#e69f00;border:2px solid #000;border-radius:8px;padding:10px 14px;margin:0 0 14px;'
@@ -442,17 +543,17 @@ def write_transcription_pages(rows, man=None):
         spouse = (' &times; ' + E(r['spouse'])) if r.get('spouse') else ''
         page = ('<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">' + NOCACHE + '<script>' + CHIP_JS + '</script>\n'
-            f'<title>Row {E(r["id"])} {E(c)} \u2013 transcription</title><style>{PAGE_CSS}{CHIP_CSS}{DETAILS_CSS}figure.crop{{margin:8px 0}}figure.crop img{{max-width:100%;height:auto;display:block;border:1px solid #ddd}}</style></head><body>\n'
+            f'<title>Row {E(r["id"])} {E(c)} \u2013 transcription</title><style>{PAGE_CSS}{CHIP_CSS}{DETAILS_CSS}{ALT_CSS}figure.crop{{margin:8px 0}}figure.crop img{{max-width:100%;height:auto;display:block;border:1px solid #ddd}}</style></head><body>\n'
             '<p><a href="../index.html">&larr; Dashboard</a></p>\n'
             f'<h1>Row {E(r["id"])}: {E(r["name"])} <span class="fn">({E(c)})</span> \u2013 Transcription</h1>\n'
             + _sticky(r, 'Transcription', st, E,
                 btn=('' if not (TRANSCRIPTION_APPROVE_ENABLED and sl.startswith('draft') and na and nal < na) else
                      ' ' + _approve_btn(r, 'transcription') + (f'<div class="src">{nal} of {na} entries already approved; the row button locks the remaining {na - nal}</div>' if nal else '')),
-                line2=(f'<b>Date</b> {E(r.get("date"))} &nbsp; <b>Type</b> {E(r.get("type"))}{spouse and " &nbsp; <b>Spouse</b> " + E(r["spouse"])} &nbsp; '
+                line2=(f'<b>Date</b> {E(r.get("date"))}{spouse and " &nbsp; <b>Spouse</b> " + E(r["spouse"])} &nbsp; '
                        f'<b>Image</b> {_img_link(r, E)} &nbsp; <a href="{E(r["url"])}" target="_blank" rel="noopener">Matricula page</a>'),
                 below=banner + TOGGLE_JS) +
             f'<h2>Stage A diplomatic text ({len(secs)} entries)</h2>\n' +
-            (f'<div class="src">source: {E(c)}_stageA.md (no diplomatic JSON)</div><pre class="transcription stagea-text">{_render_tokens(mdfull, f"{c}_stageA.md", "md", conf, E, regained)}</pre>\n' if mdfull else '') +
+            (f'<div class="src">source: {E(c)}_stageA.md (no diplomatic JSON)</div><pre class="transcription stagea-text">{_render_tokens(mdfull, f"{c}_stageA.md", "md", conf, E, regained, sl.startswith("approved"))}</pre>\n' if mdfull else '') +
             ''.join(secs) +
             f'<p class="src">Generated {E(datetime.datetime.now().astimezone().isoformat(timespec="seconds"))} by status.py</p>\n'
             + '<script>' + ROW_JS.replace('__URL__', _api_js()).replace('__CODE__', _J(c)) + '</script>\n'
@@ -584,7 +685,7 @@ LIVE_JS = ' '.join(l.strip() for l in r'''(function(){
    if(c.rev){if(c.rev!==REV)inj(encodeURIComponent(C)+'.bundle.js','oprb');}
    else{var ch=document.querySelector('#stk .chip.segchip');if(ch&&ch.textContent!==c.status)ch.textContent=c.status;}}catch(e){}}
  window.wilmesStatus=onStatus;
- window.oprPage=function(p){if(window.oprBusy||!p||p.code!==C||p.kind!==K||p.rev===REV)return;
+ window.oprPage=function(p){if(window.oprBusy||window.oprEditing||!p||p.code!==C||p.kind!==K||p.rev===REV)return;
    var op=[].map.call(document.querySelectorAll('details.ent[open]'),function(e){return e.id;}),y=window.scrollY,keep=window.oprKeep?window.oprKeep():null;
    document.body.innerHTML=p.body;
    [].forEach.call(document.body.querySelectorAll('script'),function(s){if(s.id=='openjs')return;var n=document.createElement('script');n.text=s.text;s.parentNode.replaceChild(n,s);});
@@ -877,6 +978,11 @@ def write_segmentation_pages(rows, man):
     return made
 
 def main():
+    try:                                   # Stephen's recorded reading choices survive a Transcriber/Extractor rewrite
+        _codes = [x['code'] for x in json.load(open(os.path.join(D, 'records.json')))['records']]
+        for fx in RD.reapply_all(W, D, _codes, log=lambda m: print(m, file=_sys.stderr)):
+            print(f"re-applied reading {fx['type']} {fx['token']} -> {fx['new']} in {fx['code']} ({fx['entry_id']})", file=_sys.stderr)
+    except Exception as ex: print(f'readings re-apply failed: {ex}', file=_sys.stderr)
     recs = json.load(open(os.path.join(D, 'records.json')))
     try: ov = json.load(open(os.path.join(D, 'overrides.json')))
     except Exception as ex: ov = {}; print('overrides.json unreadable:', ex)
@@ -1017,6 +1123,23 @@ def build_meta(rows, now):
         ('\u2713 Confirm reading', 'Removes exactly one <code>[?]</code> from the token in the Stage A text; backup in <code>_approve_backups/confirm_reading/</code>; record in '
          '<code>_confirmed_readings.json</code>, pending item in <code>_feedback_status.json</code>. Queue <code>kind: reading_confirmed</code>. Next: the Entry Transcriber '
          'updates the item (processing \u2192 done) and must not re-add the <code>[?]</code>.'),
+        ('Choose reading', 'For <code>word[?|alt]</code> (or <code>[?|a|b]</code>) one tap button per option. The page sends entry, field, token, occurrence and the '
+         '20 characters before it; if the Stage A text no longer has that exact token there the server answers 409 and writes nothing. Writes the picked spelling into '
+         'the Stage A diplomatic JSON (the shown field, plus every other field where the marked token occurs once) and the summary <code>&lt;code&gt;_stageA.md</code> '
+         'under <code>entries/.manifest.lock</code>, backup in <code>_approve_backups/choose_reading/</code>, record <code>type: choice</code> in '
+         '<code>_confirmed_readings.json</code>, log line, queue <code>kind: choose_reading</code>. Unlocked Stage B drafts of the entry get the same replacement; '
+         'locked Stage B is never touched (listed in the event).'),
+        ('Edit reading', 'Double-click a word (desktop), or double-tap / long-press it (iPhone), to edit that one word inline; Enter or leaving the box saves, Esc or '
+         'Cancel cancels; empty or multi-word values are refused inline. Same path, checks and storage as Choose reading (action <code>edit_reading</code>, '
+         'record <code>type: edit</code> with old \u2192 new, backup <code>_approve_backups/edit_reading/</code>, queue <code>kind: reading_edited</code> so the '
+         'Entry Transcriber can add a curated line to <code>stageA/_learned_readings.jsonl</code>). An edit that removes a <code>[?]</code> counts as confirmed.'),
+        ('Durability', 'Every status.py run re-applies active choices and edits if a rewrite brought the old token back (Stage A JSON unless locked, the .md, unlocked '
+         'Stage B), backup <code>_approve_backups/reading_reapply/</code>, log <code>action=reading_reapply</code>, queue <code>reading_change_reapplied</code>.'),
+        ('Locked entries', 'Approved/locked Stage A entries are read-only for choices and edits: no buttons or edit affordance (alternatives show \u201centry approved '
+         '\u2014 locked\u201d) and the server answers 409. The \u2713 confirm keeps its existing behaviour.'),
+        ('Undo (choice or edit)', 'Restores the old token in the Stage A JSON and .md, reverts only the Stage B draft values the change wrote, marks the record '
+         '<code>undone</code> and appends a <code>type: undo</code> record (history kept); backup <code>_approve_backups/undo_reading/</code>, queue '
+         '<code>kind: choose_reading_undone</code> or <code>reading_edit_undone</code>.'),
     ]
     h.append(sec('4. What each action does', ul([f'<b>{e(a)}</b>: {b}' for a, b in act]) +
                  '<p class="mnote">All actions: one click, no confirmation dialog, timestamped backups, atomic writes. Queue lines go to <code>dashboard/notify_queue.jsonl</code> '
