@@ -147,18 +147,23 @@ def record_fail(ip):
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="robots" content="noindex,nofollow">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sign in</title>
 <style>
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-background:#f3f4f6;font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#111827}
-form{background:#fff;padding:28px 28px 24px;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.12);width:min(340px,92vw)}
-h1{font-size:19px;margin:0 0 18px}label{display:block;font-size:13px;color:#374151;margin:12px 0 4px}
-input[type=text],input[type=password]{width:100%%;padding:9px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:15px}
-input:focus{outline:2px solid #2563eb;border-color:#2563eb}
-button{margin-top:18px;width:100%%;padding:10px;border:0;border-radius:6px;background:#2563eb;color:#fff;font-size:15px;cursor:pointer}
-button:hover{background:#1d4ed8}.msg{padding:8px 10px;border-radius:6px;font-size:13px;margin-bottom:6px}
-.err{background:#fee2e2;color:#991b1b}.ok{background:#dcfce7;color:#166534}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%%}
+body{margin:0;min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;
+padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+background:#f3f4f6;font:17px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#111827}
+form{background:#fff;padding:28px 24px 24px;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.12);width:min(380px,100%%)}
+h1{font-size:21px;margin:0 0 18px}label{display:block;font-size:16px;font-weight:600;color:#374151;margin:14px 0 6px}
+input[type=text],input[type=password]{width:100%%;min-height:48px;padding:11px 12px;border:1px solid #9ca3af;border-radius:8px;font-size:17px;background:#fff;color:#111827}
+input:focus{outline:3px solid #0b4f8a;outline-offset:1px;border-color:#0b4f8a}
+button{margin-top:22px;width:100%%;min-height:48px;padding:12px;border:0;border-radius:8px;background:#0b4f8a;color:#fff;font-size:17px;font-weight:600;cursor:pointer;touch-action:manipulation}
+button:hover,button:focus-visible{background:#083a66}
+.msg{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:8px;font-size:16px;margin-bottom:8px;border-left:5px solid}
+.msg::before{font-weight:700;flex:none}
+.err{background:#fdf0e6;color:#8a3a00;border-color:#d55e00}.err::before{content:"\\2716";color:#d55e00}
+.ok{background:#e8f1fa;color:#0b4f8a;border-color:#0b4f8a}.ok::before{content:"\\2713"}
 </style></head><body>
 <form method="post" action="login" autocomplete="on">
 <h1>Status dashboard</h1>
@@ -233,7 +238,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def page(self, code, nxt, msg='', cls='err', user=''):
         m = '<div class="msg %s" role="alert">%s</div>' % (cls, html.escape(msg)) if msg else ''
         body = PAGE % {'msg': m, 'next': html.escape(nxt, quote=True), 'user': html.escape(user, quote=True),
-                       'ufocus': '' if user else ' autofocus', 'pfocus': ' autofocus' if user else ''}
+                       'ufocus': '', 'pfocus': ''}
         self.send(code, body.encode(), 'text/html; charset=utf-8')
 
     def cookie_header(self, value, max_age):
