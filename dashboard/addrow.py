@@ -1,10 +1,10 @@
 """Add a dashboard row from the command line (same code path as the dashboard's '＋ Add row' / add_row).
 
 Usage:
-  addrow.py --name NAME --type Birth|Baptism|Marriage|Burial|Confirmation/Communion|Other [--type-other TEXT]
+  addrow.py --name NAME --type Birth|Baptism|Marriage|Burial|Death|"First Communion"|Other [--type-other TEXT]
             [--group G] [--town T] [--book B] [--image I] [--page P] [--date D] [--spouse S] [--notes N]
-            [--book-url URL] [--page-url URL]
-Group defaults to 'Added rows'; a new group name becomes a new table heading. Writes records.json (backup .bakN, shared lock),
+            [--book-url URL] [--page-url URL] [--person-id P0001] [--person-kind person|page]
+--person-id links the row to an existing person (default: a new never-reused P####). Group defaults to 'Added rows'; a new group name becomes a new table heading. Writes records.json (backup .bakN, shared lock),
 records_meta.json (id high-water), _approvals.log and ONE notify_queue line {kind: row_added, ...}; runs status.py and prints the row.
 Env (testing): OPR_W, OPR_D.
 """
@@ -15,7 +15,7 @@ import rowedit as RE
 
 def main(argv):
     ap = argparse.ArgumentParser(prog='addrow.py', description='Add a dashboard row (see module doc).')
-    for a, k in (('--name', 'name'), ('--type', 'record_type'), ('--type-other', 'type_other'), ('--group', 'group'), ('--town', 'town'),
+    for a, k in (('--person-id', 'person_id'), ('--person-kind', 'person_kind'), ('--name', 'name'), ('--type', 'record_type'), ('--type-other', 'type_other'), ('--group', 'group'), ('--town', 'town'),
                  ('--book', 'book'), ('--image', 'image'), ('--page', 'page'), ('--date', 'date'), ('--spouse', 'spouse'), ('--notes', 'notes'),
                  ('--book-url', 'book_url'), ('--page-url', 'url')):
         ap.add_argument(a, dest=k, required=k in ('name', 'record_type'))

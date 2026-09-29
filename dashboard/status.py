@@ -29,8 +29,69 @@ def seg(img, man):
         return 'Draft', f'{len(ents)} crops' + (f', {nl} locked' if nl else '')
     tail = img.split('Horn_', 1)[-1]                      # KB007-01-T_0405
     if glob.glob(f'{W}/stage0/{img}_*') or glob.glob(f'{W}/stage0_work/*{tail}*'):
-        return 'Queued (page layout running)', 'Stage 0 files present, no crops yet'
+        return 'Queued (page layout done)', 'Stage 0 files present, no crops yet'
     return None, ''
+
+# ---- Rows whose files live in ANOTHER project folder (read-only; nothing there is ever written) ----
+# Keyed by (town, book) from records.json; each row maps to its single Page Structure / manifest entry id.
+EXT_PROJECTS = {('lank st. stephanus', 'KB 1000'): {
+    'root': '/workspace/lank-kb1000',
+    'manifest': 'entries/KB1000/manifest.jsonl',          # crops (entry_id, crop_image relative to root)
+    'locked': 'entries/KB1000/CROPS_LOCKED.txt',          # '<entry_id> ... locked ...' lines
+    'structure': 'entries/KB1000/structure/*.jsonl',       # Page Structure (Stage 0) per face: structure_id
+    'entries': {'N0023': 'KB1000_s078_p164_e3', 'N0024': 'KB1000_s097_p202_e6'}}}
+def ext_project(r):
+    return EXT_PROJECTS.get((str(r.get('town') or '').strip().lower(), str(r.get('book') or '').strip()))
+def ext_entry(r):
+    p = ext_project(r)
+    return (p, p['entries'].get(r.get('code'))) if p else (None, None)
+_EXT_CACHE = {}
+def _ext_read(p):
+    if p['root'] in _EXT_CACHE: return _EXT_CACHE[p['root']]
+    man, locked, struct = {}, set(), set()
+    try:
+        for l in open(os.path.join(p['root'], p['manifest']), encoding='utf-8'):
+            try: j = json.loads(l)
+            except ValueError: continue
+            if j.get('entry_id'): man[j['entry_id']] = j
+    except OSError: pass
+    try:
+        for l in open(os.path.join(p['root'], p['locked']), encoding='utf-8'):
+            t = l.split()
+            if t and 'locked' in l.lower(): locked.add(t[0])
+    except OSError: pass
+    for f in glob.glob(os.path.join(p['root'], p['structure'])):
+        try:
+            for l in open(f, encoding='utf-8'):
+                try: sid = json.loads(l).get('structure_id')
+                except ValueError: continue
+                if sid: struct.add(sid)
+        except OSError: pass
+    _EXT_CACHE[p['root']] = (man, locked, struct); return _EXT_CACHE[p['root']]
+def ext_seg(r):
+    """Segmentation for a row mapped to another project's entry: crop locked -> Approved; crop -> Draft; Page Structure only
+    -> 'Queued (page layout done)'; else None (not started)."""
+    p, eid = ext_entry(r)
+    if not eid: return None, ''
+    man, locked, struct = _ext_read(p)
+    rel = os.path.relpath(p['root'], '/workspace')
+    if eid in man and os.path.isfile(os.path.join(p['root'], man[eid].get('crop_image') or '')):
+        if eid in locked: return 'Approved', f'1 crop, approved ({eid}, {rel})'
+        return 'Draft', f'1 crop ({eid}, {rel})'
+    if eid in struct: return 'Queued (page layout done)', f'Page Structure done, no crop yet ({eid}, {rel})'
+    return None, ''
+
+def _crops_newer(r, img, man, since):
+    """True when a crop file for this row is newer than the 'Segmenting' stamp (no stamp -> False: the reported stage stands,
+    so an old cut being redone does not hide the Segmenter's report)."""
+    try: t0 = datetime.datetime.fromisoformat(str(since)).timestamp()
+    except (TypeError, ValueError): return False
+    p, eid = ext_entry(r)
+    if eid:
+        e = _ext_read(p)[0].get(eid) or {}
+        paths = [os.path.join(p['root'], e.get('crop_image') or '')] if e.get('crop_image') else []
+    else: paths = [e.get('crop_path') or '' for e in man.get(img, [])]
+    return any(os.path.isfile(q) and os.path.getmtime(q) > t0 for q in paths)
 
 # Stage A folder per row code. Normally stageA/<code>; some rows live in a town-prefixed folder (W-S0036 -> Warstein_S0036).
 # Explicit aliases first, then a unique '<Town>_<rest>' folder whose town starts with the code's prefix letter. Files are never moved.
@@ -243,14 +304,14 @@ NOCACHE = ('<meta name="robots" content="noindex,nofollow">'   # hidden page (al
 MOBILE_CSS = ".rtype{display:inline-block;padding:0 7px;border:1.5px solid #222;border-radius:3px;background:#fff;color:#222;font-size:13px;font-weight:600;line-height:1.5;white-space:nowrap;vertical-align:1px}.rtype .rti::before{content:\"\\25a4\\00a0\"}.rtype .de{font-weight:400;color:#444}.rtype.unk{border-style:dotted;color:#444;font-style:italic}body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}a.full{display:block;cursor:zoom-in}.hdr a.hl{color:#0b4f8a;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.hdr a.hl:focus,.hdr a.hl:focus-visible{outline:3px solid #0b4f8a;outline-offset:2px;border-radius:3px;background:#e8f1fa}.stktog{display:none}@media (max-width:700px),(pointer:coarse) and (max-height:500px){body{margin:10px 12px}h1{font-size:19px}p,li,summary,label,textarea,input,select,.corrpanel{font-size:16px}.stk{margin:0 -12px 12px;padding:6px 12px;--stkpt:6px}.stk .rtype .de,.stk .rtype .rti{display:none}.stk .rtype{font-size:12px;padding:0 4px;letter-spacing:-.1px}.hdr a.back{font-size:0;text-decoration:none}.hdr a.back::before{content:\"\\2190\";font-size:20px;line-height:1;padding:0 12px 0 2px}.stk .hdr{font-size:14px;line-height:1.45;padding:6px 10px}.apvbox{max-width:none;margin:0 0 4px 8px}html:not(.stkopen) .stk .stail,html:not(.stkopen) .stk .l2,html:not(.stkopen) .stk .draftban,html:not(.stkopen) .stk #tg,html:not(.stkopen) .stk .stagenote,html:not(.stkopen) .stk #oprupd{display:none}.stktog{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;padding:0 10px;border:1px solid #888;border-radius:6px;background:#fff;color:#222;font-size:14px;vertical-align:middle;cursor:pointer}.stktog::after{content:\"more \\25be\"}html.stkopen .stktog::after{content:\"less \\25b4\"}pre{font-size:15px}pre.stagea-text{font-size:18px}.entact{float:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}}@media (pointer:coarse){.apv,.rcb,.entapv,.corrbtn,.corrpanel button,#tg,.stktog{min-height:44px;min-width:44px;box-sizing:border-box}.entapv,.fbchip,.entok{margin-left:0}.ck{min-width:44px;min-height:44px;font-size:16px;vertical-align:middle;margin:2px 4px}.corrpanel label{display:flex;align-items:center;min-height:44px;margin:0;white-space:normal}.corrpanel input[type=checkbox]{width:24px;height:24px;margin:0 10px 0 0;flex:0 0 auto}details>summary{min-height:44px;padding-top:10px;padding-bottom:10px;box-sizing:border-box}body>p>a,.hdr a{display:inline-block;padding:10px 0}.hdr a.hl{display:inline;padding:14px;margin:0 -14px}#oprlogout{padding:13px 14px!important;font-size:15px!important}body{padding-bottom:calc(56px + env(safe-area-inset-bottom))}}body{margin-top:0}.stk{position:-webkit-sticky;position:sticky;top:0;margin-top:0}.hdr a.back{white-space:nowrap}@media (pointer:coarse) and (max-height:500px){.stk{max-height:50vh;max-height:50dvh;overflow-y:auto;-webkit-overflow-scrolling:touch}html:not(.stkopen) .stk .kd{display:none}html:not(.stkopen) .stktog::after{content:\"\\25be\"}html:not(.stkopen) .stktog{padding:0 6px}}.stk{padding-top:calc(var(--stkpt,8px) + env(safe-area-inset-top,0px))}"
 MOBILE_JS = "(function(){if(window.oprStk)return;window.oprStk=1;var H=document.documentElement;try{if(sessionStorage.getItem('oprStk')==='1')H.classList.add('stkopen');}catch(e){}document.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest?ev.target.closest('.stktog'):null;if(!t)return;H.classList.toggle('stkopen');var o=H.classList.contains('stkopen');t.setAttribute('aria-expanded',o?'true':'false');try{sessionStorage.setItem('oprStk',o?'1':'');}catch(e){}var st=document.getElementById('stk');if(st)H.style.setProperty('--stkh',st.offsetHeight+'px');});})();"
 CHIP_CSS = ".k-done,.k-need,.k-proc,.k-wait,.k-err,.k-none{white-space:nowrap}.k-done{background:#e8f1fa!important;color:#0b4f8a!important;border:1px solid #0072b2!important;font-weight:600!important}.k-need{background:#e69f00!important;color:#000!important;border:2px solid #000!important;font-weight:800!important}.k-proc,.k-wait{background:#eeeeee!important;color:#333!important;border:1px dashed #888!important;font-weight:600!important}.k-wait{border-color:#333!important}.k-err{background:#d55e00!important;color:#fff!important;border:2px solid #000!important;font-weight:800!important}.k-none{background:#fff!important;color:#555!important;border:1px solid #bbb!important;font-weight:600!important}.k-done::before{content:\"\\2713\\00a0\"}.k-need::before{content:\"\\26a0\\fe0e\\00a0\"}.k-proc::before{content:\"\\23f3\\00a0\"}.k-wait::before{content:\"\\23f3!\\00a0\"}.k-err::before{content:\"\\2716\\00a0\"}.k-none::before{content:\"\\25cb\\00a0\"}.lgc,.qbadge{display:inline-block;padding:1px 9px;border-radius:12px;font-size:12px;margin:0 4px 2px 0;vertical-align:1px}.qbadge{background:#e69f00;color:#000;border:2px solid #000;font-weight:800;margin-left:8px;cursor:help}@media (prefers-reduced-motion:no-preference){.k-need{animation:oprpulse 2.6s ease-in-out infinite}}@keyframes oprpulse{0%,100%{box-shadow:0 0 0 0 rgba(230,159,0,0)}50%{box-shadow:0 0 0 4px rgba(230,159,0,.45)}}.oprerr{color:#d55e00;font-weight:700}"
-CHIP_JS = "(function(){if(window.oprKind)return; var KS=['k-done','k-need','k-proc','k-wait','k-err','k-none'],SEL='.chip,.segchip,.fbchip,.entok,.corrpend,.corrsent'; function K(t){t=String(t||'').replace(/^[\\s\\u2713\\u26a0\\ufe0e\\u23f3\\u2716\\u25cb!]+/,'').toLowerCase();if(!t)return ''; if(/^(blocked|error|failed|not sent|not done|not approved)/.test(t))return 'err'; if(/^(queued for redo|correction (pending|sent)|recut|draft)/.test(t))return 'need'; if(/^waiting on transcriber/.test(t))return 'wait'; if(/^waiting on expansion/.test(t))return 'proc'; if(/hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving|researching/.test(t))return 'proc'; if(/^(approved|locked|updated|done|complete|page found|added)/.test(t))return 'done'; if(/^not started/.test(t))return 'none';return '';} function apply(){[].forEach.call(document.querySelectorAll(SEL),function(el){var k=K(el.textContent),c=k?'k-'+k:''; KS.forEach(function(x){if(x!==c&&el.classList.contains(x))el.classList.remove(x);});if(c&&!el.classList.contains(c))el.classList.add(c);}); [].forEach.call(document.querySelectorAll('details.ent'),function(d){var a=d.querySelector('summary .entact');if(!a)return; var n=d.querySelectorAll('.tq:not(.confirmed) .qm').length,b=a.querySelector('.qbadge'); if(n){if(!b){b=document.createElement('span');b.className='qbadge';b.title='Unconfirmed readings [?] in this entry (tap \\u2713 next to each to confirm)';a.insertBefore(b,a.firstChild);} var t='[?] '+n;if(b.textContent!==t)b.textContent=t;}else if(b)b.remove();});} window.oprKind=K;window.oprKindApply=apply;var q=0; function sch(){if(q)return;q=1;setTimeout(function(){q=0;apply();},0);} function start(){apply();new MutationObserver(sch).observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});} if(document.body)start();else document.addEventListener('DOMContentLoaded',start);})();"
+CHIP_JS = "(function(){if(window.oprKind)return; var KS=['k-done','k-need','k-proc','k-wait','k-err','k-none'],SEL='.chip,.segchip,.fbchip,.entok,.corrpend,.corrsent'; function K(t){t=String(t||'').replace(/^[\\s\\u2713\\u26a0\\ufe0e\\u23f3\\u2716\\u25cb!]+/,'').toLowerCase();if(!t)return ''; if(/^(blocked|error|failed|not sent|not done|not approved)/.test(t))return 'err'; if(/^(queued for redo|correction (pending|sent)|recut|draft)/.test(t))return 'need'; if(/^waiting on transcriber/.test(t))return 'wait'; if(/^waiting on expansion/.test(t))return 'proc'; if(/hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving|researching|segmenting/.test(t))return 'proc'; if(/^(approved|locked|updated|done|complete|page found|added)/.test(t))return 'done'; if(/^not started/.test(t))return 'none';return '';} function apply(){[].forEach.call(document.querySelectorAll(SEL),function(el){var k=K(el.textContent),c=k?'k-'+k:''; KS.forEach(function(x){if(x!==c&&el.classList.contains(x))el.classList.remove(x);});if(c&&!el.classList.contains(c))el.classList.add(c);}); [].forEach.call(document.querySelectorAll('details.ent'),function(d){var a=d.querySelector('summary .entact');if(!a)return; var n=d.querySelectorAll('.tq:not(.confirmed) .qm').length,b=a.querySelector('.qbadge'); if(n){if(!b){b=document.createElement('span');b.className='qbadge';b.title='Unconfirmed readings [?] in this entry (tap \\u2713 next to each to confirm)';a.insertBefore(b,a.firstChild);} var t='[?] '+n;if(b.textContent!==t)b.textContent=t;}else if(b)b.remove();});} window.oprKind=K;window.oprKindApply=apply;var q=0; function sch(){if(q)return;q=1;setTimeout(function(){q=0;apply();},0);} function start(){apply();new MutationObserver(sch).observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});} if(document.body)start();else document.addEventListener('DOMContentLoaded',start);})();"
 def _kind(st):
     t = re.sub(r'^[\s\u2713\u26a0\ufe0e\u23f3\u2716\u25cb!]+', '', str(st or '')).lower()
     if not t: return ''
     if re.match(r'(blocked|error|failed|not sent|not done|not approved)', t): return 'err'
     if re.match(r'(queued for redo|correction (pending|sent)|recut|draft)', t): return 'need'
     if t.startswith('waiting on transcriber'): return 'wait'
-    if re.search(r'hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving|researching', t): return 'proc'
+    if re.search(r'hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving|researching|segmenting', t): return 'proc'
     if re.match(r'(approved|locked|updated|done|complete|page found|added)', t): return 'done'
     if t.startswith('not started'): return 'none'
     return ''
@@ -1231,10 +1292,10 @@ def _img_link(r, E):
 # German terms are Matricula's own register titles. Suffix convention checked 29 Sep 2026 against the Matricula titles of every book in use:
 #   DE_EBAP_22212 (Horn): KB004-02-T Taufen 1760-1799, KB004-06-T Taufen 1800-1807, KB005-02-H Trauungen 1760-1807,
 #   KB006-01-S Sterbefälle 1760-1807, KB007-01-T Taufen 1808-1837, KB010-01-S Sterbefälle 1808-1851;  DE_EBAP_23815 (Warstein): KB013-01-S Sterbefälle 1843-1882.
-RECORD_TYPES = {'births': ('Births', 'Geburten'), 'confcomm': ('Confirmation/Communion', 'Firmung/Erstkommunion'), 'baptisms': ('Baptisms', 'Taufen'), 'marriages': ('Marriages', 'Trauungen'), 'burials': ('Burials/Deaths', 'Sterbefälle'),
+RECORD_TYPES = {'births': ('Births', 'Geburten'), 'confcomm': ('Confirmation/Communion', 'Firmung/Erstkommunion'), 'baptisms': ('Baptisms', 'Taufen'), 'marriages': ('Marriages', 'Trauungen'), 'burials': ('Burials', 'Sterbefälle'), 'deaths': ('Deaths', 'Sterbefälle'),
                 'communion': ('First Communion', 'Erstkommunion'), 'confirmation': ('Confirmations', 'Firmungen'), 'notes': ('Notes', None)}
 _TYPE_WORDS = [('confcomm', r'^confirmation/communion$'), ('births', r'^(birth|geburt)'), ('baptisms', r'bapti|taufe|geburt|birth'), ('marriages', r'marri|trauung|heirat|ehe|wedding'),
-               ('burials', r'buri|death|sterbe|begr(ä|ae|a)bni|tote|verstorb'), ('communion', r'communion|kommunion'),
+               ('deaths', r'^death$'), ('burials', r'buri|death|sterbe|begr(ä|ae|a)bni|tote|verstorb'), ('communion', r'communion|kommunion'),
                ('confirmation', r'confirm|firm'), ('notes', r'note|notiz|vermerk')]
 BOOK_SUFFIX_TYPES = {'T': 'baptisms', 'H': 'marriages', 'S': 'burials'}   # verified per book above; a new suffix/book -> 'Type unknown'
 def _type_key(word):
@@ -1262,6 +1323,11 @@ def _register_types():
                 if m: book.setdefault(m.group(1), set()).add(k)
     except FileNotFoundError: pass
     _REG_CACHE.update({'img': img, 'book': book}); return _REG_CACHE
+_TSLOT = {'Birth': 'Birth', 'Baptism': 'Baptism', 'Marriage': 'Marriage', 'Burial': 'Burial', 'Death': 'Death',
+          'First Communion': 'First Communion', 'Confirmation/Communion': 'First Communion'}
+def _tslot(t):
+    """records.json type -> the ＋ menu slot (same table as rowedit.type_slot); 'Other: …' and anything else -> ''."""
+    return _TSLOT.get(str(t or '').strip(), '')
 def record_type(r):
     """-> {'key','en','de','label','source'} for a records.json row (see the order above)."""
     reg = _register_types()
@@ -1474,11 +1540,13 @@ def main():
     for r in recs['records']:
         c, img = r['code'], r.get('image_id') or ''; o = ov.get(c, {}) if isinstance(ov.get(c), dict) else {}
         cells = {}; added = bool(r.get('added_by')); located = bool(str(r.get('book') or '').strip() and str(r.get('page') or '').strip())
-        for k, fn in (('segmentation', lambda: seg(img, man)), ('transcription', lambda: trans(c, img, man)),
+        for k, fn in (('segmentation', lambda: ext_seg(r) if ext_entry(r)[1] else seg(img, man)), ('transcription', lambda: trans(c, img, man)),
                       ('expansion', lambda: expan(c, cells['transcription']['status'], o.get('expansion'))), ('extraction', lambda: extr(c, img))):
             v, why, *sx = fn(); src = sx[0] if sx else 'files'
             if v is None: v, why, src = r.get('baseline', {}).get(k, NS), '', 'baseline'
-            if k in o and k != 'expansion': v, why, src = o[k], o.get('note', ''), 'override'   # expansion override handled (gated) in expan()
+            seg_first_cut = (k == 'segmentation' and str(o.get(k) or '').startswith('Segmenting') and src == 'files' and v in ('Draft', 'Approved')
+                             and _crops_newer(r, img, man, o.get('seg_stage_set')))   # crops made after 'Segmenting' was set -> files win
+            if k in o and k != 'expansion' and not seg_first_cut: v, why, src = o[k], o.get('note', '') or ('Segmenter is making the first cut' if o[k] == 'Segmenting' else ''), 'override'   # expansion override handled (gated) in expan()
             if added and k == 'segmentation' and src == 'baseline' and r.get('seg_requested'):
                 v, why, src = 'Queued', f"segmentation requested {str(r['seg_requested'])[11:16]} CT (book, image and page filled in)", 'rule'
             if added and not located and k != 'extraction' and src != 'override':
@@ -1487,6 +1555,7 @@ def main():
                 v, why, src = WAIT_EXP, 'Record Extraction starts once this row\u2019s Expansion has output', 'rule'   # existing Stage B drafts are 'files' and stay as they are
             cells[k] = {'status': v, 'detail': why, 'source': src}
         rows.append({**{k: r[k] for k in ('id', 'group', 'name', 'spouse', 'date', 'type', 'book', 'image', 'page', 'code')},
+                     'person_id': r.get('person_id') or '', 'person_kind': r.get('person_kind') or 'person', 'tslot': _tslot(r.get('type')),
                      'town': r.get('town') or towns.get(r['book'], ''), 'record_type': record_type(r), 'image_id': r.get('image_id') or '',
                      **mlink(r), **cells, **(_added_info(r, ov) if added else {})})
     os.makedirs(OUT, exist_ok=True); write_segmentation_pages(rows, man); write_extraction_pages(rows, man); write_transcription_pages(rows, man); write_expansion_pages(rows)   # segmentation first: fills _PUB (crops for extraction title rows); also sets .link on linked chips

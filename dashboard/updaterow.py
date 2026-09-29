@@ -1,7 +1,8 @@
 """Chief's post-research update of an added row (the same code path as the dashboard's 'Edit details' / update_row).
 
 Usage:
-  updaterow.py CODE [--name N] [--type Birth|Baptism|Marriage|Burial|Confirmation/Communion|Other] [--group G] [--type-other TEXT]
+  updaterow.py CODE [--name N] [--type Birth|Baptism|Marriage|Burial|Death|"First Communion"|Other] [--group G] [--type-other TEXT]
+                    [--person-id P0001|new] [--person-kind person|page]
                     [--date D] [--spouse S] [--town T] [--book B] [--image I] [--page P]
                     [--book-url URL] [--page-url URL] [--notes TEXT]
 Writes the existing records.json fields (book, image, page, date, spouse, town, notes, collection, pg, url, book_url, image_id).
@@ -13,7 +14,8 @@ Image/Page link = <collection>/<book>/?pg=<page digits>  (give --page-url when t
 When book, image and page are all filled in (first time, or changed): Research -> 'Page found', Segmentation -> 'Queued' and ONE
 notify_queue line {kind: segmentation_requested, row, code, book, image, page, time}; repeating the same values never re-sends.
 Backs up records.json (next free .bakN) under entries/.manifest.lock, logs to entries/_approvals.log, runs status.py, prints the chips.
-Only rows added with '＋ Add row' can be updated. Env (testing): OPR_W, OPR_D.
+Only rows added with '＋ Add row' can be updated, except --person-id / --person-kind, which work on ANY row (to link or
+split people: give the same P#### to rows of one person; 'new' issues a fresh never-reused id; page = page of several people). Env (testing): OPR_W, OPR_D.
 """
 import argparse, json, os, subprocess, sys
 W = os.environ.get('OPR_W', '/workspace/horn-wilmes'); D = os.environ.get('OPR_D', os.path.join(W, 'dashboard'))
@@ -23,7 +25,7 @@ import rowedit as RE
 def main(argv):
     ap = argparse.ArgumentParser(prog='updaterow.py', description='Update an added dashboard row (see module doc).')
     ap.add_argument('code')
-    for a, k in (('--group', 'group'), ('--name', 'name'), ('--type', 'record_type'), ('--type-other', 'type_other'), ('--date', 'date'), ('--spouse', 'spouse'),
+    for a, k in (('--person-id', 'person_id'), ('--person-kind', 'person_kind'), ('--group', 'group'), ('--name', 'name'), ('--type', 'record_type'), ('--type-other', 'type_other'), ('--date', 'date'), ('--spouse', 'spouse'),
                  ('--town', 'town'), ('--book', 'book'), ('--image', 'image'), ('--page', 'page'), ('--book-url', 'book_url'),
                  ('--page-url', 'url'), ('--notes', 'notes')):
         ap.add_argument(a, dest=k)

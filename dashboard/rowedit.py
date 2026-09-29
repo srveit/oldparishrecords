@@ -13,7 +13,16 @@ import datetime, fcntl, glob, json, os, re, shutil, tempfile, time
 
 BY = 'Stephen dashboard'
 GROUP = 'Added rows'
-TYPES = ['Birth', 'Baptism', 'Marriage', 'Burial', 'Confirmation/Communion', 'Other']
+TYPES = ['Birth', 'Baptism', 'Marriage', 'Burial', 'Death', 'First Communion', 'Other']
+LEGACY_TYPES = {'Confirmation/Communion': 'First Communion'}   # old form option; accepted on input and stored as First Communion
+# Per-person ＋ menu: record types a person can have, and which stored type strings count as which ('Other: …' counts as none)
+PLUS_TYPES = ['Birth', 'Baptism', 'Marriage', 'Burial', 'Death', 'First Communion']
+def type_slot(t):
+    t = str(t or '').strip()
+    t = LEGACY_TYPES.get(t, t)
+    return t if t in PLUS_TYPES else None
+PID_RE = re.compile(r'P\d{4,}')
+PERSON_KINDS = ('person', 'page')     # 'page' = a page-level row covering several people (＋ disabled)
 ORIGINAL_GROUPS = ('Family of Caspar Anton Wilmes gen. Herweg', 'Other Wilmes records', 'Other Horn pages')   # never removed
 MROOT = 'https://data.matricula-online.eu/de/deutschland/'
 def mbase(diocese): return f'{MROOT}{diocese or "paderborn"}/'
@@ -120,7 +129,8 @@ def derive(rec, recs, auto_url=True, auto_book_url=True):
     """Fill collection, pg, url, book_url and image_id the way the table builds them (editable: given URLs win)."""
     dio, col = coll_for(rec, recs); rec['collection'] = col
     if dio and dio != 'paderborn': rec['diocese'] = dio
-    else: rec.pop('diocese', None)                            # absent = paderborn (as every original row)
+    elif dio: rec.pop('diocese', None)                        # absent = paderborn (as every original row)
+    # unknown (no URL, town not Horn/Warstein): a stored diocese hint is kept; no links are built without a collection
     d2, c2, b2, pg2 = parse_url4(rec.get('url'))
     if pg2: rec['pg'] = pg2
     elif rec.get('book') and col and page_digits(rec.get('page')): rec['pg'] = int(page_digits(rec['page']))
@@ -186,6 +196,7 @@ def _find(recs, code):
 
 def _type(record_type, other):
     t = str(record_type or '').strip()
+    t = LEGACY_TYPES.get(t, t)
     if t not in TYPES: raise RowError('Record type is required (' + ', '.join(TYPES[:-1]) + ' or Other)', 400)
     if t == 'Other':
         if not other: raise RowError('Record type Other needs a short description', 400)
@@ -223,6 +234,30 @@ def _seg_trigger(ctx, rec, stamp, events):
                    'image': rec['image'], 'page': rec['page'], 'time': stamp})
     return True
 
+def meta_load(ctx):
+    try: m = json.load(open(ctx.meta, encoding='utf-8'))
+    except Exception: m = {}
+    return m if isinstance(m, dict) else {}
+def meta_save(ctx, m, stamp):
+    """records_meta.json keeps every key (row high-water, person high-water); written atomically under the caller's lock."""
+    m = dict(m); m['updated_at'] = stamp
+    m.setdefault('note', 'highest row id ever issued; ids are never reused (rowedit.py)')
+    m.setdefault('person_note', 'highest person_id number ever issued (P0001 ...); person ids are never reused (rowedit.py)')
+    _atomic(ctx.meta, json.dumps(m, indent=1) + '\n')
+def _pnum(p): return int(p[1:]) if isinstance(p, str) and PID_RE.fullmatch(p) else 0
+def new_person_id(ctx, recs, m):
+    """Next P#### above the high-water mark, every id in records.json and every deleted row's id. Updates m in place."""
+    n = max([int(m.get('person_high_water', 0) or 0)] + [_pnum(r.get('person_id')) for r in recs['records']] + [_pnum((d.get('record') or {}).get('person_id')) for d in _deleted(ctx)]) + 1
+    m['person_high_water'] = n
+    return f'P{n:04d}'
+def _person_id_in(ctx, recs, m, v):
+    """Validate a given person_id ('new' or empty -> a new one). A higher number than the high-water raises the mark."""
+    v = str(v or '').strip().upper()
+    if not v or v == 'NEW': return new_person_id(ctx, recs, m)
+    if not PID_RE.fullmatch(v): raise RowError('person_id must look like P0001 (or "new")', 400)
+    if _pnum(v) > int(m.get('person_high_water', 0) or 0): m['person_high_water'] = _pnum(v)
+    return v
+
 def _new_id_code(ctx, recs):
     try: hw = int(json.load(open(ctx.meta, encoding='utf-8')).get('high_water_id', 0))
     except Exception: hw = 0
@@ -239,36 +274,104 @@ def add_row(ctx, f, client='cli'):
     if not name: raise RowError('Name is required', 400)
     typ = _type(f.get('record_type'), clean(f.get('type_other'), 'type_other'))
     lf = lock(ctx)
-    try:
-        recs = load(ctx); stamp = now_ct()
+    try: return _add_locked(ctx, load(ctx), f, name, typ, client)
+    finally: unlock(lf)
+
+def _add_locked(ctx, recs, f, name, typ, client, after_person=None, extra_event=None, log_extra=''):
+    """add_row body; caller holds the lock. after_person: insert directly under that person's last row (else append)."""
+    if True:
+        stamp = now_ct(); m = meta_load(ctx)
         nid, code = _new_id_code(ctx, recs)
+        pid = _person_id_in(ctx, recs, m, f.get('person_id'))
+        pk = str(f.get('person_kind') or 'person').strip().lower()
+        if pk not in PERSON_KINDS: raise RowError('person_kind must be person or page', 400)
         grp = clean(f.get('group'), 'group') or GROUP
         rec = {'id': nid, 'group': grp, 'name': name, 'type': typ, 'book': '', 'image': '', 'page': '', 'code': code, 'image_id': '',
                'date': '', 'spouse': '', 'collection': DEFAULT_COLL, 'pg': None, 'url': ''}
         _apply_fields(rec, f, recs)
+        if f.get('diocese') and not rec.get('diocese') and not rec.get('collection'): rec['diocese'] = str(f['diocese'])[:40]   # hint copied from the person's row
+        rec['person_id'] = pid
+        if pk != 'person': rec['person_kind'] = pk
         rec.update({'added_by': BY, 'added_at': stamp, 'research': 'Researching'})
         events = [{k: v for k, v in (('kind', 'row_added'), ('row', nid), ('code', code), ('name', name), ('record_type', typ),
                    ('parish', rec.get('town', '')), ('book', rec['book']), ('page', rec['page']), ('time', stamp), ('by', BY))
                    if k not in ('parish', 'book', 'page') or v}]
+        if extra_event: events[0].update(extra_event)
         _seg_trigger(ctx, rec, stamp, events)
         if grp not in recs['groups']: recs['groups'].append(grp)
-        recs['records'].append(rec)
+        pos = max([i for i, r in enumerate(recs['records']) if after_person and r.get('person_id') == after_person] or [len(recs['records']) - 1])
+        recs['records'].insert(pos + 1, rec)       # table and cards follow records.json order within each group
         bak = save(ctx, recs)
-        _atomic(ctx.meta, json.dumps({'high_water_id': nid, 'updated_at': stamp,
-                                      'note': 'highest row id ever issued; ids are never reused (rowedit.py)'}, indent=1) + '\n')
-        log(ctx, stamp, 'add_row', nid, code, f'{typ}: {name}', client)
+        m['high_water_id'] = max(nid, int(m.get('high_water_id', 0) or 0)); meta_save(ctx, m, stamp)
+        log(ctx, stamp, 'add_row', nid, code, f'{typ}: {name} ({pid})' + log_extra, client)
         for e in events: notify(ctx, e)
         dup = [f"row {r['id']} ({r['code']})" for r in recs['records'] if rec.get('image_id') and r is not rec and r.get('image_id') == rec['image_id']]
-        return {'ok': True, 'action': 'add_row', 'row': nid, 'code': code, 'record': rec, 'records_backup': bak, 'events': events, 'time': stamp,
+        return {'ok': True, 'action': 'add_row', 'row': nid, 'code': code, 'person_id': pid, 'record': rec, 'records_backup': bak, 'events': events, 'time': stamp,
                 'warning': f"same page as {', '.join(dup)}" if dup else ''}
+
+def person_types(recs, pid):
+    """Record types (PLUS_TYPES names) present over all rows with this person_id."""
+    return {type_slot(r.get('type')) for r in recs['records'] if pid and r.get('person_id') == pid} - {None}
+
+def plus_menu(recs, pid):
+    """[(type, label)] offered by the ＋ menu: missing types; Marriage always (labelled when one exists)."""
+    have = person_types(recs, pid); out = []
+    for t in PLUS_TYPES:
+        if t == 'Marriage': out.append((t, 'Marriage (another marriage)' if t in have else t))
+        elif t not in have: out.append((t, t))
+    return out
+
+PLUS_DEDUPE_S = 5
+def person_plus(ctx, code, record_type, client='dashboard'):
+    """＋ beside a name: one new row for the same person (name, group, person_id, town/diocese), the chosen type, blank
+    book/image/page/date, research Researching, placed directly under the person's last row. Same person+type within 5 s -> the
+    row just made is returned (deduped, nothing written)."""
+    t = LEGACY_TYPES.get(str(record_type or '').strip(), str(record_type or '').strip())
+    if t not in PLUS_TYPES: raise RowError('record type must be one of ' + ', '.join(PLUS_TYPES), 400)
+    lf = lock(ctx)
+    try:
+        recs = load(ctx); src = _find(recs, code); pid = src.get('person_id')
+        if not pid: raise RowError(f'{code} has no person_id yet', 409)
+        if src.get('person_kind') == 'page': raise RowError('This row is a page of several people; add a row for one person with \u201c\uff0b Add row\u201d', 409)
+        now = datetime.datetime.now().astimezone()
+        for r in recs['records']:
+            if r.get('person_id') == pid and r.get('type') == t and r.get('added_at'):
+                try: age = (now - datetime.datetime.fromisoformat(r['added_at'])).total_seconds()
+                except ValueError: continue
+                if 0 <= age <= PLUS_DEDUPE_S:
+                    return {'ok': True, 'action': 'person_plus', 'deduped': True, 'row': r['id'], 'code': r['code'], 'person_id': pid, 'record': r, 'events': [], 'time': r['added_at']}
+        if t != 'Marriage' and t in person_types(recs, pid): raise RowError(f'{src.get("name")} already has a {t} record', 409)
+        f = {'name': src.get('name', ''), 'group': src.get('group') or GROUP, 'person_id': pid, 'notes': f'Requested via \uff0b from row {src["id"]}'}
+        if src.get('town'): f['town'] = src['town']
+        if src.get('diocese'): f['diocese'] = src['diocese']
+        res = _add_locked(ctx, recs, f, clean(f['name'], 'name'), t, client, after_person=pid,
+                          extra_event={'person_id': pid, 'source_row': src['id'], 'source': 'person_plus'}, log_extra=f' via \uff0b from row {src["id"]}')
+        res['action'] = 'person_plus'; res['source_row'] = src['id']
+        return res
     finally: unlock(lf)
 
 def update_row(ctx, code, f, client='cli', who=BY, allow_research=True):
     lf = lock(ctx)
     try:
         recs = load(ctx); rec = _find(recs, code)
-        if not is_added(rec): raise RowError(f'{code} is not an added row; only rows added with \u201c\uff0b Add row\u201d can be edited here', 409)
+        pkeys = {'person_id', 'person_kind'}
+        if not is_added(rec) and set(f) - pkeys: raise RowError(f'{code} is not an added row; only rows added with \u201c\uff0b Add row\u201d can be edited here (person_id / person_kind can be set on any row)', 409)
         stamp = now_ct(); events = []; before = json.dumps(rec, sort_keys=True); b_nt = (rec.get('name'), rec.get('type'))
+        b_p = (rec.get('person_id'), rec.get('person_kind')); m = None
+        if 'person_id' in f:
+            m = meta_load(ctx); rec['person_id'] = _person_id_in(ctx, recs, m, f['person_id'])
+        if 'person_kind' in f:
+            pk = str(f['person_kind'] or 'person').strip().lower()
+            if pk not in PERSON_KINDS: raise RowError('person_kind must be person or page', 400)
+            if pk == 'person': rec.pop('person_kind', None)
+            else: rec['person_kind'] = pk
+        if not is_added(rec):          # original row: only the person link changes (no derive / no URL rebuild)
+            if (rec.get('person_id'), rec.get('person_kind')) == b_p: return {'ok': True, 'action': 'update_row', 'row': rec['id'], 'code': code, 'changed': [], 'record': rec, 'events': [], 'time': stamp, 'records_backup': None}
+            bak = save(ctx, recs)
+            if m is not None: meta_save(ctx, m, stamp)
+            ch = [k for k, a in (('person_id', b_p[0]), ('person_kind', b_p[1])) if rec.get(k) != a]
+            log(ctx, stamp, 'update_row', rec['id'], code, 'changed ' + ','.join(ch) + f" -> {rec.get('person_id')} {rec.get('person_kind', 'person')}", client)
+            return {'ok': True, 'action': 'update_row', 'row': rec['id'], 'code': code, 'changed': ch, 'record': rec, 'events': [], 'records_backup': bak, 'time': stamp}
         if 'name' in f:
             n = clean(f['name'], 'name')
             if not n: raise RowError('Name is required', 400)
@@ -279,13 +382,14 @@ def update_row(ctx, code, f, client='cli', who=BY, allow_research=True):
             g = clean(f['group'], 'group') or GROUP
             rec['group'] = g
             if g not in recs['groups']: recs['groups'].append(g)
-        ch = _apply_fields(rec, f, recs) + [k for k, a in (('name', b_nt[0]), ('type', b_nt[1]), ('group', old_group)) if rec.get(k) != a]
+        ch = _apply_fields(rec, f, recs) + [k for k, a in (('name', b_nt[0]), ('type', b_nt[1]), ('group', old_group), ('person_id', b_p[0]), ('person_kind', b_p[1])) if rec.get(k) != a]
         if rec.get('group') != old_group: _drop_group_if_empty(recs, old_group)
         fired = _seg_trigger(ctx, rec, stamp, events)
         changed = before != json.dumps(rec, sort_keys=True)
         if not changed and not fired: return {'ok': True, 'action': 'update_row', 'row': rec['id'], 'code': code, 'changed': [], 'record': rec, 'events': [], 'time': stamp, 'records_backup': None}
         rec['updated_at'] = stamp; rec['updated_by'] = who
         bak = save(ctx, recs)
+        if m is not None: meta_save(ctx, m, stamp)
         log(ctx, stamp, 'update_row', rec['id'], code, 'changed ' + ','.join(sorted(set(ch))) + (' ; segmentation_requested' if fired else ''), client)
         for e in events: notify(ctx, e)
         return {'ok': True, 'action': 'update_row', 'row': rec['id'], 'code': code, 'changed': sorted(set(ch)), 'record': rec,

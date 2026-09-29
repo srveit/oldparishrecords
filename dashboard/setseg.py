@@ -4,7 +4,7 @@
 Usage:
   setseg.py CODE STAGE [CODE STAGE ...] [--wait-mac [SECONDS]]
   setseg.py --audit                      # check every published segmentation page against the manifest
-STAGE: queued (= 'Queued for redo') | redoing | recut | clear
+STAGE: segmenting (first cut in progress: grey ⏳ Segmenting; crops, once they exist, override it) | queued (= 'Queued for redo') | redoing | recut | clear
   recut archives the row's pending corrections (entries/_corrections/archive/, reason recut);
   clear removes the stage (and legacy 'seg_redo_note') and archives pending corrections (reason cancelled); a recut hold ('On hold until crops approved') is undone
   (previous transcription override restored, or file-derived); the entry is dropped if nothing else is left.
@@ -17,7 +17,7 @@ import fcntl, glob, json, os, re, shutil, subprocess, sys, tempfile, time, datet
 
 W = os.environ.get('OPR_W', '/workspace/horn-wilmes'); D = os.environ.get('OPR_D', os.path.join(W, 'dashboard'))
 OUT = os.path.join(D, 'out'); SD = os.path.join(OUT, 'segmentation')
-STAGES = {'queued': 'Queued for redo', 'queued for redo': 'Queued for redo', 'queued-for-redo': 'Queued for redo',
+STAGES = {'segmenting': 'Segmenting', 'queued': 'Queued for redo', 'queued for redo': 'Queued for redo', 'queued-for-redo': 'Queued for redo',
           'redoing': 'Redoing', 'recut': 'Recut', 'clear': None}
 
 def archive_corrections(code, reason, stamp):
@@ -137,7 +137,7 @@ def main(argv):
     for c, st in zip(args[::2], args[1::2]):
         if c not in recs: die(f'unknown code {c!r} (not in records.json)')
         k = st.strip().lower()
-        if k not in STAGES: die(f'unknown stage {st!r}; use queued | redoing | recut | clear')
+        if k not in STAGES: die(f'unknown stage {st!r}; use segmenting | queued | redoing | recut | clear')
         pairs.append((c, STAGES[k]))
     op = os.path.join(D, 'overrides.json')
     lf = open(os.path.join(W, 'entries', '.manifest.lock'), 'a+'); fcntl.flock(lf, fcntl.LOCK_EX)   # same lock as approve_server.py
