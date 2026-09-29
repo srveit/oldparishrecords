@@ -112,7 +112,7 @@ NOCACHE = ('<meta name="robots" content="noindex,nofollow">'   # hidden page (al
 #   k-err   ERROR          #d55e00 vermillion, white bold, ✖ ;  k-none NOT STARTED white, #555, ○
 # The class is derived from the chip TEXT (oprKind in JS, _kind here) and re-applied by a MutationObserver, so in-place updates recolour.
 # Phone layout (iPhone SE/13 portrait + landscape): injected into every detail page by _write_page; index.html has its own block.
-MOBILE_CSS = "body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}a.full{display:block;cursor:zoom-in}.hdr a.hl{color:#0b4f8a;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.hdr a.hl:focus,.hdr a.hl:focus-visible{outline:3px solid #0b4f8a;outline-offset:2px;border-radius:3px;background:#e8f1fa}.stktog{display:none}@media (max-width:700px),(pointer:coarse) and (max-height:500px){body{margin:10px 12px}h1{font-size:19px}p,li,summary,label,textarea,input,select,.corrpanel{font-size:16px}.stk{margin:0 -12px 12px;padding:6px 12px;--stkpt:6px}.hdr a.back{font-size:0;text-decoration:none}.hdr a.back::before{content:\"\\2190\";font-size:20px;line-height:1;padding:0 12px 0 2px}.stk .hdr{font-size:14px;line-height:1.45;padding:6px 10px}.apvbox{max-width:none;margin:0 0 4px 8px}html:not(.stkopen) .stk .l2,html:not(.stkopen) .stk .draftban,html:not(.stkopen) .stk #tg,html:not(.stkopen) .stk .stagenote,html:not(.stkopen) .stk #oprupd{display:none}.stktog{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;padding:0 10px;border:1px solid #888;border-radius:6px;background:#fff;color:#222;font-size:14px;vertical-align:middle;cursor:pointer}.stktog::after{content:\"more \\25be\"}html.stkopen .stktog::after{content:\"less \\25b4\"}pre{font-size:15px}pre.stagea-text{font-size:18px}.entact{float:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}}@media (pointer:coarse){.apv,.rcb,.entapv,.corrbtn,.corrpanel button,#tg,.stktog{min-height:44px;min-width:44px;box-sizing:border-box}.entapv,.fbchip,.entok{margin-left:0}.ck{min-width:44px;min-height:44px;font-size:16px;vertical-align:middle;margin:2px 4px}.corrpanel label{display:flex;align-items:center;min-height:44px;margin:0;white-space:normal}.corrpanel input[type=checkbox]{width:24px;height:24px;margin:0 10px 0 0;flex:0 0 auto}details>summary{min-height:44px;padding-top:10px;padding-bottom:10px;box-sizing:border-box}body>p>a,.hdr a{display:inline-block;padding:10px 0}.hdr a.hl{display:inline;padding:14px;margin:0 -14px}#oprlogout{padding:13px 14px!important;font-size:15px!important}body{padding-bottom:calc(56px + env(safe-area-inset-bottom))}}body{margin-top:0}.stk{position:-webkit-sticky;position:sticky;top:0;margin-top:0}.hdr a.back{white-space:nowrap}@media (pointer:coarse) and (max-height:500px){.stk{max-height:50vh;max-height:50dvh;overflow-y:auto;-webkit-overflow-scrolling:touch}}.stk{padding-top:calc(var(--stkpt,8px) + env(safe-area-inset-top,0px))}"
+MOBILE_CSS = ".rtype{display:inline-block;padding:0 7px;border:1.5px solid #222;border-radius:3px;background:#fff;color:#222;font-size:13px;font-weight:600;line-height:1.5;white-space:nowrap;vertical-align:1px}.rtype .rti::before{content:\"\\25a4\\00a0\"}.rtype .de{font-weight:400;color:#444}.rtype.unk{border-style:dotted;color:#444;font-style:italic}body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}a.full{display:block;cursor:zoom-in}.hdr a.hl{color:#0b4f8a;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.hdr a.hl:focus,.hdr a.hl:focus-visible{outline:3px solid #0b4f8a;outline-offset:2px;border-radius:3px;background:#e8f1fa}.stktog{display:none}@media (max-width:700px),(pointer:coarse) and (max-height:500px){body{margin:10px 12px}h1{font-size:19px}p,li,summary,label,textarea,input,select,.corrpanel{font-size:16px}.stk{margin:0 -12px 12px;padding:6px 12px;--stkpt:6px}.stk .rtype .de,.stk .rtype .rti{display:none}.stk .rtype{font-size:12px;padding:0 4px;letter-spacing:-.1px}.hdr a.back{font-size:0;text-decoration:none}.hdr a.back::before{content:\"\\2190\";font-size:20px;line-height:1;padding:0 12px 0 2px}.stk .hdr{font-size:14px;line-height:1.45;padding:6px 10px}.apvbox{max-width:none;margin:0 0 4px 8px}html:not(.stkopen) .stk .stail,html:not(.stkopen) .stk .l2,html:not(.stkopen) .stk .draftban,html:not(.stkopen) .stk #tg,html:not(.stkopen) .stk .stagenote,html:not(.stkopen) .stk #oprupd{display:none}.stktog{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;padding:0 10px;border:1px solid #888;border-radius:6px;background:#fff;color:#222;font-size:14px;vertical-align:middle;cursor:pointer}.stktog::after{content:\"more \\25be\"}html.stkopen .stktog::after{content:\"less \\25b4\"}pre{font-size:15px}pre.stagea-text{font-size:18px}.entact{float:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}}@media (pointer:coarse){.apv,.rcb,.entapv,.corrbtn,.corrpanel button,#tg,.stktog{min-height:44px;min-width:44px;box-sizing:border-box}.entapv,.fbchip,.entok{margin-left:0}.ck{min-width:44px;min-height:44px;font-size:16px;vertical-align:middle;margin:2px 4px}.corrpanel label{display:flex;align-items:center;min-height:44px;margin:0;white-space:normal}.corrpanel input[type=checkbox]{width:24px;height:24px;margin:0 10px 0 0;flex:0 0 auto}details>summary{min-height:44px;padding-top:10px;padding-bottom:10px;box-sizing:border-box}body>p>a,.hdr a{display:inline-block;padding:10px 0}.hdr a.hl{display:inline;padding:14px;margin:0 -14px}#oprlogout{padding:13px 14px!important;font-size:15px!important}body{padding-bottom:calc(56px + env(safe-area-inset-bottom))}}body{margin-top:0}.stk{position:-webkit-sticky;position:sticky;top:0;margin-top:0}.hdr a.back{white-space:nowrap}@media (pointer:coarse) and (max-height:500px){.stk{max-height:50vh;max-height:50dvh;overflow-y:auto;-webkit-overflow-scrolling:touch}html:not(.stkopen) .stk .kd{display:none}html:not(.stkopen) .stktog::after{content:\"\\25be\"}html:not(.stkopen) .stktog{padding:0 6px}}.stk{padding-top:calc(var(--stkpt,8px) + env(safe-area-inset-top,0px))}"
 MOBILE_JS = "(function(){if(window.oprStk)return;window.oprStk=1;var H=document.documentElement;try{if(sessionStorage.getItem('oprStk')==='1')H.classList.add('stkopen');}catch(e){}document.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest?ev.target.closest('.stktog'):null;if(!t)return;H.classList.toggle('stkopen');var o=H.classList.contains('stkopen');t.setAttribute('aria-expanded',o?'true':'false');try{sessionStorage.setItem('oprStk',o?'1':'');}catch(e){}var st=document.getElementById('stk');if(st)H.style.setProperty('--stkh',st.offsetHeight+'px');});})();"
 CHIP_CSS = ".k-done,.k-need,.k-proc,.k-wait,.k-err,.k-none{white-space:nowrap}.k-done{background:#e8f1fa!important;color:#0b4f8a!important;border:1px solid #0072b2!important;font-weight:600!important}.k-need{background:#e69f00!important;color:#000!important;border:2px solid #000!important;font-weight:800!important}.k-proc,.k-wait{background:#eeeeee!important;color:#333!important;border:1px dashed #888!important;font-weight:600!important}.k-wait{border-color:#333!important}.k-err{background:#d55e00!important;color:#fff!important;border:2px solid #000!important;font-weight:800!important}.k-none{background:#fff!important;color:#555!important;border:1px solid #bbb!important;font-weight:600!important}.k-done::before{content:\"\\2713\\00a0\"}.k-need::before{content:\"\\26a0\\fe0e\\00a0\"}.k-proc::before{content:\"\\23f3\\00a0\"}.k-wait::before{content:\"\\23f3!\\00a0\"}.k-err::before{content:\"\\2716\\00a0\"}.k-none::before{content:\"\\25cb\\00a0\"}.lgc,.qbadge{display:inline-block;padding:1px 9px;border-radius:12px;font-size:12px;margin:0 4px 2px 0;vertical-align:1px}.qbadge{background:#e69f00;color:#000;border:2px solid #000;font-weight:800;margin-left:8px;cursor:help}@media (prefers-reduced-motion:no-preference){.k-need{animation:oprpulse 2.6s ease-in-out infinite}}@keyframes oprpulse{0%,100%{box-shadow:0 0 0 0 rgba(230,159,0,0)}50%{box-shadow:0 0 0 4px rgba(230,159,0,.45)}}.oprerr{color:#d55e00;font-weight:700}"
 CHIP_JS = "(function(){if(window.oprKind)return; var KS=['k-done','k-need','k-proc','k-wait','k-err','k-none'],SEL='.chip,.segchip,.fbchip,.entok,.corrpend,.corrsent'; function K(t){t=String(t||'').replace(/^[\\s\\u2713\\u26a0\\ufe0e\\u23f3\\u2716\\u25cb!]+/,'').toLowerCase();if(!t)return ''; if(/^(blocked|error|failed|not sent|not done|not approved)/.test(t))return 'err'; if(/^(queued for redo|correction (pending|sent)|recut|draft)/.test(t))return 'need'; if(/^waiting on transcriber/.test(t))return 'wait'; if(/hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving/.test(t))return 'proc'; if(/^(approved|locked|updated|done|complete)/.test(t))return 'done'; if(/^not started/.test(t))return 'none';return '';} function apply(){[].forEach.call(document.querySelectorAll(SEL),function(el){var k=K(el.textContent),c=k?'k-'+k:''; KS.forEach(function(x){if(x!==c&&el.classList.contains(x))el.classList.remove(x);});if(c&&!el.classList.contains(c))el.classList.add(c);}); [].forEach.call(document.querySelectorAll('details.ent'),function(d){var a=d.querySelector('summary .entact');if(!a)return; var n=d.querySelectorAll('.tq:not(.confirmed) .qm').length,b=a.querySelector('.qbadge'); if(n){if(!b){b=document.createElement('span');b.className='qbadge';b.title='Unconfirmed readings [?] in this entry (tap \\u2713 next to each to confirm)';a.insertBefore(b,a.firstChild);} var t='[?] '+n;if(b.textContent!==t)b.textContent=t;}else if(b)b.remove();});} window.oprKind=K;window.oprKindApply=apply;var q=0; function sch(){if(q)return;q=1;setTimeout(function(){q=0;apply();},0);} function start(){apply();new MutationObserver(sch).observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});} if(document.body)start();else document.addEventListener('DOMContentLoaded',start);})();"
@@ -628,11 +628,73 @@ def _book_url(r):
 def _img_link(r, E):
     return _hl(r.get('url'), r.get('image'), E, 'Open this image on Matricula (new tab)')
 
+# ---------------- Record type (register) shown in every detail-page header and in the Pipeline table: ONE mapping for both ----------------
+# Order (never guess): 1) records.json row 'type'  2) register_type in the crop manifests for that image  3) register_type anywhere in
+# the same book's manifest entries  4) the book-code suffix  -> otherwise 'Type unknown'. If 1) and 2) disagree -> 'Type unknown'.
+# German terms are Matricula's own register titles. Suffix convention checked 29 Sep 2026 against the Matricula titles of every book in use:
+#   DE_EBAP_22212 (Horn): KB004-02-T Taufen 1760-1799, KB004-06-T Taufen 1800-1807, KB005-02-H Trauungen 1760-1807,
+#   KB006-01-S Sterbefälle 1760-1807, KB007-01-T Taufen 1808-1837, KB010-01-S Sterbefälle 1808-1851;  DE_EBAP_23815 (Warstein): KB013-01-S Sterbefälle 1843-1882.
+RECORD_TYPES = {'baptisms': ('Baptisms', 'Taufen'), 'marriages': ('Marriages', 'Trauungen'), 'burials': ('Burials/Deaths', 'Sterbefälle'),
+                'communion': ('First Communion', 'Erstkommunion'), 'confirmation': ('Confirmations', 'Firmungen'), 'notes': ('Notes', None)}
+_TYPE_WORDS = [('baptisms', r'bapti|taufe|geburt|birth'), ('marriages', r'marri|trauung|heirat|ehe|wedding'),
+               ('burials', r'buri|death|sterbe|begr(ä|ae|a)bni|tote|verstorb'), ('communion', r'communion|kommunion'),
+               ('confirmation', r'confirm|firm'), ('notes', r'note|notiz|vermerk')]
+BOOK_SUFFIX_TYPES = {'T': 'baptisms', 'H': 'marriages', 'S': 'burials'}   # verified per book above; a new suffix/book -> 'Type unknown'
+def _type_key(word):
+    w = str(word or '').strip().lower()
+    if not w: return None
+    for k, rx in _TYPE_WORDS:
+        if re.search(rx, w): return k
+    return None
+_REG_CACHE = {}
+def _register_types():
+    """{'img': {image_id: set(keys)}, 'book': {book: set(keys)}} from register_type in entries/manifest.jsonl (cached per run)."""
+    if _REG_CACHE: return _REG_CACHE
+    img, book = {}, {}
+    try:
+        for line in open(os.path.join(W, 'entries/manifest.jsonl'), encoding='utf-8'):
+            line = line.strip()
+            if not line: continue
+            try: e = json.loads(line)
+            except ValueError: continue
+            k = _type_key(e.get('register_type'))
+            iid = e.get('image_id') or e.get('scan') or ''
+            m = re.search(r'_(KB[\w-]+?)_\d{3,4}$', iid)
+            if k:
+                img.setdefault(iid, set()).add(k)
+                if m: book.setdefault(m.group(1), set()).add(k)
+    except FileNotFoundError: pass
+    _REG_CACHE.update({'img': img, 'book': book}); return _REG_CACHE
+def record_type(r):
+    """-> {'key','en','de','label','source'} for a records.json row (see the order above)."""
+    reg = _register_types()
+    k1 = _type_key(r.get('type'))
+    ki = reg['img'].get(r.get('image_id') or '', set())
+    k2 = next(iter(ki)) if len(ki) == 1 else None
+    kb = reg['book'].get(r.get('book') or '', set())
+    k3 = next(iter(kb)) if len(kb) == 1 else None
+    suf = str(r.get('book') or '').rsplit('-', 1)[-1] if '-' in str(r.get('book') or '') else ''
+    k4 = BOOK_SUFFIX_TYPES.get(suf)
+    if k1 and k2 and k1 != k2: key, src = None, 'conflict: records.json says %s, manifest says %s' % (k1, k2)
+    elif k1: key, src = k1, 'records.json type' + (' (manifest agrees)' if k2 == k1 else '')
+    elif k2: key, src = k2, 'manifest register_type'
+    elif k3: key, src = k3, 'manifest register_type (same book)'
+    elif k4: key, src = k4, 'book suffix -' + suf
+    else: key, src = None, 'no data'
+    if not key: return {'key': '', 'en': 'Type unknown', 'de': '', 'label': 'Type unknown', 'source': src}
+    en, de = RECORD_TYPES[key]
+    return {'key': key, 'en': en, 'de': de or '', 'label': en + (f' ({de})' if de else ''), 'source': src}
+def _type_pill(r, E):
+    t = r.get('record_type') or record_type(r)
+    de = f' <span class="de">({E(t["de"])})</span>' if t['de'] else ''
+    return (f'<span class="rtype{" unk" if not t["key"] else ""}" title="Record type: {E(t["label"])} (from {E(t["source"])})">'
+            f'<span class="rti" aria-hidden="true"></span>{E(t["en"])}{de}</span>')
+
 def _sticky(r, kind, st, E, btn='', tail='', line2='', below=''):
     """Shared sticky header for extraction, transcription and segmentation pages: row, book, page, status chip (+ extras)."""
     return (f'<div class="stk" id="stk"><div class="hdr">'
             + (f'<span class="apvbox">{btn.strip()}</span>' if btn.strip() else '') +
-            f'<b>Row</b> {E(r["id"])} &nbsp; <b>Book</b> {_hl(_book_url(r), r["book"], E, "Open this book\u2019s title page on Matricula (new tab)")} &nbsp; <b>Page</b> {_hl(r.get("url"), r.get("page"), E, "Open this page on Matricula (new tab)")} &nbsp; <b>{E(kind)}</b> {_chip(st, E)[1]}{tail}'
+            f'<b>Row</b> {E(r["id"])} &nbsp; <b>Book</b> {_hl(_book_url(r), r["book"], E, "Open this book\u2019s title page on Matricula (new tab)")} &nbsp; <b>Page</b> {_hl(r.get("url"), r.get("page"), E, "Open this page on Matricula (new tab)")} &nbsp; {_type_pill(r, E)} <span class="kd">&nbsp; <b>{E(kind)}</b></span> {_chip(st, E)[1]}' + (f'<span class="stail">{tail}</span>' if tail else '')
             + '<button class="stktog" type="button" aria-expanded="false" aria-label="Show or hide the header details"></button>'
             + (f'<span class="l2"><br>\n{line2}</span>' if line2 else '') + f'</div>{below}</div><!--/stk-->\n')
 
@@ -801,7 +863,7 @@ def main():
             if k in o: v, why, src = o[k], o.get('note', ''), 'override'
             cells[k] = {'status': v, 'detail': why, 'source': src}
         rows.append({**{k: r[k] for k in ('id', 'group', 'name', 'spouse', 'date', 'type', 'book', 'image', 'page', 'code')},
-                     'town': r.get('town') or towns.get(r['book'], ''),
+                     'town': r.get('town') or towns.get(r['book'], ''), 'record_type': record_type(r),
                      **mlink(r), **cells})
     os.makedirs(OUT, exist_ok=True); write_extraction_pages(rows); write_segmentation_pages(rows, man); write_transcription_pages(rows, man)   # also set .link on linked chips
     now = datetime.datetime.now().astimezone()
