@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Derive Wilmes-records pipeline status from files -> out/status.json + out/status.js.
 Precedence per cell: overrides.json > file-derived > records.json 'baseline' > 'Not started'."""
-import json, os, glob, datetime, tempfile, hashlib
+import json, os, glob, datetime, tempfile, hashlib, re
 W = os.environ.get('OPR_W', '/workspace/horn-wilmes'); D = os.environ.get('OPR_D', os.path.join(W, 'dashboard')); OUT = os.path.join(D, 'out')
 NS = 'Not started'
 
@@ -104,11 +104,33 @@ def _stagea_text(code):
 NOCACHE = ('<meta name="robots" content="noindex,nofollow">'   # hidden page (also served at oldparishrecords.com/dashboard)
            '<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">'
            '<meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">')
+# Colour-blind-safe status chips (Okabe-Ito; Stephen is red/green colour blind). The SAME CSS/JS is inlined in index.html
+# (<style id="oprchipcss"> / <script id="oprchipjs">); keep both in sync. Every state has its own symbol, colour is never the only cue:
+#   k-need  NEEDS STEPHEN  solid #e69f00, black bold text, 2px black border, ⚠ (gentle pulse unless prefers-reduced-motion)
+#   k-proc  PROCESSING     #eeeeee, #333 text, 1px dashed #888, ⏳ ; k-wait = stale >30 min (⏳!)
+#   k-done  APPROVED/DONE  quiet #e8f1fa, #0b4f8a text, 1px #0072b2, ✓
+#   k-err   ERROR          #d55e00 vermillion, white bold, ✖ ;  k-none NOT STARTED white, #555, ○
+# The class is derived from the chip TEXT (oprKind in JS, _kind here) and re-applied by a MutationObserver, so in-place updates recolour.
+# Phone layout (iPhone SE/13 portrait + landscape): injected into every detail page by _write_page; index.html has its own block.
+MOBILE_CSS = "body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}a.full{display:block;cursor:zoom-in}.stktog{display:none}@media (max-width:700px),(pointer:coarse) and (max-height:500px){body{margin:10px 12px}h1{font-size:19px}p,li,summary,label,textarea,input,select,.corrpanel{font-size:16px}.stk{margin:0 -12px 12px;padding:6px 12px}.stk .hdr{font-size:14px;line-height:1.45;padding:6px 10px}.apvbox{max-width:none;margin:0 0 4px 8px}html:not(.stkopen) .stk .l2,html:not(.stkopen) .stk .draftban,html:not(.stkopen) .stk #tg,html:not(.stkopen) .stk .stagenote,html:not(.stkopen) .stk #oprupd{display:none}.stktog{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;padding:0 10px;border:1px solid #888;border-radius:6px;background:#fff;color:#222;font-size:14px;vertical-align:middle;cursor:pointer}.stktog::after{content:\"more \\25be\"}html.stkopen .stktog::after{content:\"less \\25b4\"}pre{font-size:15px}pre.stagea-text{font-size:18px}.entact{float:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}}@media (pointer:coarse){.apv,.rcb,.entapv,.corrbtn,.corrpanel button,#tg,.stktog{min-height:44px;min-width:44px;box-sizing:border-box}.entapv,.fbchip,.entok{margin-left:0}.ck{min-width:44px;min-height:44px;font-size:16px;vertical-align:middle;margin:2px 4px}.corrpanel label{display:flex;align-items:center;min-height:44px;margin:0;white-space:normal}.corrpanel input[type=checkbox]{width:24px;height:24px;margin:0 10px 0 0;flex:0 0 auto}details>summary{min-height:44px;padding-top:10px;padding-bottom:10px;box-sizing:border-box}body>p>a,.hdr a{display:inline-block;padding:10px 0}#oprlogout{padding:13px 14px!important;font-size:15px!important}body{padding-bottom:calc(56px + env(safe-area-inset-bottom))}}"
+MOBILE_JS = "(function(){if(window.oprStk)return;window.oprStk=1;var H=document.documentElement;try{if(sessionStorage.getItem('oprStk')==='1')H.classList.add('stkopen');}catch(e){}document.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest?ev.target.closest('.stktog'):null;if(!t)return;H.classList.toggle('stkopen');var o=H.classList.contains('stkopen');t.setAttribute('aria-expanded',o?'true':'false');try{sessionStorage.setItem('oprStk',o?'1':'');}catch(e){}var st=document.getElementById('stk');if(st)H.style.setProperty('--stkh',st.offsetHeight+'px');});})();"
+CHIP_CSS = ".k-done,.k-need,.k-proc,.k-wait,.k-err,.k-none{white-space:nowrap}.k-done{background:#e8f1fa!important;color:#0b4f8a!important;border:1px solid #0072b2!important;font-weight:600!important}.k-need{background:#e69f00!important;color:#000!important;border:2px solid #000!important;font-weight:800!important}.k-proc,.k-wait{background:#eeeeee!important;color:#333!important;border:1px dashed #888!important;font-weight:600!important}.k-wait{border-color:#333!important}.k-err{background:#d55e00!important;color:#fff!important;border:2px solid #000!important;font-weight:800!important}.k-none{background:#fff!important;color:#555!important;border:1px solid #bbb!important;font-weight:600!important}.k-done::before{content:\"\\2713\\00a0\"}.k-need::before{content:\"\\26a0\\fe0e\\00a0\"}.k-proc::before{content:\"\\23f3\\00a0\"}.k-wait::before{content:\"\\23f3!\\00a0\"}.k-err::before{content:\"\\2716\\00a0\"}.k-none::before{content:\"\\25cb\\00a0\"}.lgc,.qbadge{display:inline-block;padding:1px 9px;border-radius:12px;font-size:12px;margin:0 4px 2px 0;vertical-align:1px}.qbadge{background:#e69f00;color:#000;border:2px solid #000;font-weight:800;margin-left:8px;cursor:help}@media (prefers-reduced-motion:no-preference){.k-need{animation:oprpulse 2.6s ease-in-out infinite}}@keyframes oprpulse{0%,100%{box-shadow:0 0 0 0 rgba(230,159,0,0)}50%{box-shadow:0 0 0 4px rgba(230,159,0,.45)}}.oprerr{color:#d55e00;font-weight:700}"
+CHIP_JS = "(function(){if(window.oprKind)return; var KS=['k-done','k-need','k-proc','k-wait','k-err','k-none'],SEL='.chip,.segchip,.fbchip,.entok,.corrpend,.corrsent'; function K(t){t=String(t||'').replace(/^[\\s\\u2713\\u26a0\\ufe0e\\u23f3\\u2716\\u25cb!]+/,'').toLowerCase();if(!t)return ''; if(/^(blocked|error|failed|not sent|not done|not approved)/.test(t))return 'err'; if(/^(queued for redo|correction (pending|sent)|recut|draft)/.test(t))return 'need'; if(/^waiting on transcriber/.test(t))return 'wait'; if(/hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving/.test(t))return 'proc'; if(/^(approved|locked|updated|done|complete)/.test(t))return 'done'; if(/^not started/.test(t))return 'none';return '';} function apply(){[].forEach.call(document.querySelectorAll(SEL),function(el){var k=K(el.textContent),c=k?'k-'+k:''; KS.forEach(function(x){if(x!==c&&el.classList.contains(x))el.classList.remove(x);});if(c&&!el.classList.contains(c))el.classList.add(c);}); [].forEach.call(document.querySelectorAll('details.ent'),function(d){var a=d.querySelector('summary .entact');if(!a)return; var n=d.querySelectorAll('.tq:not(.confirmed) .qm').length,b=a.querySelector('.qbadge'); if(n){if(!b){b=document.createElement('span');b.className='qbadge';b.title='Unconfirmed readings [?] in this entry (tap \\u2713 next to each to confirm)';a.insertBefore(b,a.firstChild);} var t='[?] '+n;if(b.textContent!==t)b.textContent=t;}else if(b)b.remove();});} window.oprKind=K;window.oprKindApply=apply;var q=0; function sch(){if(q)return;q=1;setTimeout(function(){q=0;apply();},0);} function start(){apply();new MutationObserver(sch).observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});} if(document.body)start();else document.addEventListener('DOMContentLoaded',start);})();"
+def _kind(st):
+    t = re.sub(r'^[\s\u2713\u26a0\ufe0e\u23f3\u2716\u25cb!]+', '', str(st or '')).lower()
+    if not t: return ''
+    if re.match(r'(blocked|error|failed|not sent|not done|not approved)', t): return 'err'
+    if re.match(r'(queued for redo|correction (pending|sent)|recut|draft)', t): return 'need'
+    if t.startswith('waiting on transcriber'): return 'wait'
+    if re.search(r'hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving', t): return 'proc'
+    if re.match(r'(approved|locked|updated|done|complete)', t): return 'done'
+    if t.startswith('not started'): return 'none'
+    return ''
 PAGE_CSS = ('body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:20px;color:#222}h1{font-size:20px;margin:0 0 6px}'
     '.hdr{background:#eef2f8;border:1px solid #d5dce8;border-radius:8px;padding:10px 14px;margin-bottom:16px;line-height:1.6}'
     'h2{font-size:17px;color:#1a3d7c;margin:18px 0 6px}pre{white-space:pre-wrap;word-wrap:break-word;'
     'font-family:Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:13px;background:#fafafa;border:1px solid #ddd;border-radius:6px;padding:10px}'
-    'pre.stagea-text{font-size:calc(13px * 1.5)}.stk{position:sticky;top:0;z-index:10;background:#fff;margin:0 -20px 14px;padding:8px 20px;border-bottom:1px solid #c9d2e0;box-shadow:0 3px 6px -3px rgba(0,0,0,.2)}.stk .hdr{margin-bottom:0}.stk #tg{margin:8px 0 0}.stk .draftban{margin:8px 0 0}.apvbox{float:right;margin:0 0 6px 24px;text-align:right;max-width:45%}.apv{padding:6px 18px;font-weight:700;font-size:14px;background:#fff;color:#1e7e34;border:2px solid #1e7e34;border-radius:6px;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.15)}.apv:hover{background:#1e7e34;color:#fff}.entact{float:right}.entapv{margin-left:8px;padding:2px 10px;font-size:12px;font-weight:700;background:#fff;color:#1e7e34;border:1.5px solid #1e7e34;border-radius:5px;cursor:pointer}.entapv:disabled{opacity:.6}.entok{margin-left:8px;padding:1px 9px;font-size:12px;font-weight:700;background:#1e7e34;color:#fff;border-radius:10px}.fbchip{margin-left:8px;padding:1px 9px;font-size:12px;font-weight:700;border-radius:10px}.fbupd{background:#fff3cd;color:#7a5300;border:1px solid #ecd47e}.fbwait{background:#f8d7da;color:#842029;border:1px solid #f1aeb5}.fbdone{background:#1e7e34;color:#fff}.ck{margin:0 2px 0 1px;padding:0 4px;font-size:11px;line-height:15px;border:1px solid #1e7e34;color:#1e7e34;background:#fff;border-radius:4px;cursor:pointer;vertical-align:1px}.ck:disabled{opacity:.5}.tq .qm{color:#b36b00}.tq.confirmed{background:#d4edda;border-radius:3px;transition:background 3s}.ckerr{color:#b00020;font-size:12px;font-weight:700;margin-left:4px}.rcb{padding:5px 14px;font-weight:600;font-size:13px;background:#fff;color:#6f42c1;border:2px dashed #6f42c1;border-radius:6px;cursor:pointer}.rcb:hover{background:#f3edfb}.rcb:disabled{opacity:.6;cursor:wait}.apv:disabled{opacity:.6;cursor:wait}#apvmsg{display:block;font-size:12px;margin-top:4px}.chip{display:inline-block;padding:1px 10px;border-radius:12px;font-size:13px;font-weight:700}details.ent,figure.crop,h2{scroll-margin-top:calc(var(--stkh,170px) + 10px)}.rec h3{font-size:15px;margin:14px 0 4px}.fn{font-weight:400;color:#666;font-size:12px;font-family:monospace}a{color:#1a5fb4}.src{color:#777;font-size:12px}')
+    'pre.stagea-text{font-size:calc(13px * 1.5)}.stk{position:sticky;top:0;z-index:10;background:#fff;margin:0 -20px 14px;padding:8px 20px;border-bottom:1px solid #c9d2e0;box-shadow:0 3px 6px -3px rgba(0,0,0,.2)}.stk .hdr{margin-bottom:0}.stk #tg{margin:8px 0 0}.stk .draftban{margin:8px 0 0}.apvbox{float:right;margin:0 0 6px 24px;text-align:right;max-width:45%}.apv{padding:6px 18px;font-weight:700;font-size:14px;background:#fff;color:#0072b2;border:2px solid #0072b2;border-radius:6px;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.15)}.apv:hover{background:#0072b2;color:#fff}.entact{float:right}.entapv{margin-left:8px;padding:2px 10px;font-size:12px;font-weight:800;background:#e69f00;color:#000;border:2px solid #000;border-radius:5px;cursor:pointer}.entapv::before{content:"\\26a0\\fe0e\\00a0"}.entapv:disabled{opacity:.6}.entok{margin-left:8px;padding:1px 9px;font-size:12px;border-radius:10px}.fbchip{margin-left:8px;padding:1px 9px;font-size:12px;font-weight:700;border-radius:10px}.ck{margin:0 2px 0 1px;padding:0 4px;font-size:11px;line-height:15px;border:1px solid #0072b2;color:#0072b2;background:#fff;border-radius:4px;cursor:pointer;vertical-align:1px}.ck:disabled{opacity:.5}.tq .qm{color:#b36b00}.tq.confirmed{background:#e8f1fa;border-radius:3px;transition:background 3s}.ckerr{color:#d55e00;font-size:12px;font-weight:700;margin-left:4px}.rcb{padding:5px 14px;font-weight:600;font-size:13px;background:#fff;color:#0b4f8a;border:2px dashed #0072b2;border-radius:6px;cursor:pointer}.rcb:hover{background:#e8f1fa}.rcb:disabled{opacity:.6;cursor:wait}.apv:disabled{opacity:.6;cursor:wait}#apvmsg{display:block;font-size:12px;margin-top:4px}.chip{display:inline-block;padding:1px 10px;border-radius:12px;font-size:13px;font-weight:700}details.ent,figure.crop,h2{scroll-margin-top:calc(var(--stkh,170px) + 10px)}.rec h3{font-size:15px;margin:14px 0 4px}.fn{font-weight:400;color:#666;font-size:12px;font-family:monospace}a{color:#1a5fb4}.src{color:#777;font-size:12px}')
 
 def _stagea_entries(code):
     """{entry_no: [(tag, label, text), ...]} from Stage A diplomatic JSON (several parts when an entry spans L/R faces)."""
@@ -180,12 +202,12 @@ def write_extraction_pages(rows):
             secs.append(f'<details class="ent" id="{E(en)}"><summary>{summ}</summary><div class="body">{a}{b}</div></details>\n')
         top = (f'<h2>Stage A summary ({E(c)}_stageA.md, fallback)</h2><pre class="transcription stagea-text">{E(mdfull)}</pre>\n' if mdfull else '')
         page = ('<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width,initial-scale=1">' + NOCACHE + '\n'
-            f'<title>Row {E(r["id"])} {E(c)} \u2013 {"draft extraction" if xs.startswith("draft") else "extraction"}</title><style>{PAGE_CSS}'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">' + NOCACHE + '<script>' + CHIP_JS + '</script>\n'
+            f'<title>Row {E(r["id"])} {E(c)} \u2013 {"draft extraction" if xs.startswith("draft") else "extraction"}</title><style>{PAGE_CSS}{CHIP_CSS}'
             'details.ent{border:1px solid #d5dce8;border-radius:6px;margin:0 0 8px;background:#fff}'
             'details.ent summary{cursor:pointer;padding:8px 12px;font-size:15px;background:#f5f7fb;border-radius:6px}'
             'details.ent[open] summary{border-bottom:1px solid #d5dce8;border-radius:6px 6px 0 0}'
-            'details.ent .body{padding:4px 12px 10px}.miss{color:#b00020;font-weight:600;font-size:13px}'
+            'details.ent .body{padding:4px 12px 10px}.miss{color:#d55e00;font-weight:600;font-size:13px}'
             '#tg{margin:0 0 10px;padding:4px 12px;cursor:pointer}</style></head><body>\n'
             '<p><a href="../index.html">&larr; Dashboard</a></p>\n'
             f'<h1>Row {E(r["id"])}: {E(r["name"])} <span class="fn">({E(c)})</span> \u2013 Record extraction: {E(r["extraction"]["status"])}</h1>\n'
@@ -230,7 +252,7 @@ OPEN_JS = ('<script id="openjs">(function(){var m=location.search.match(/[?&]ope
 DETAILS_CSS = ('details.ent{border:1px solid #d5dce8;border-radius:6px;margin:0 0 8px;background:#fff}'
                'details.ent summary{cursor:pointer;padding:8px 12px;font-size:15px;background:#f5f7fb;border-radius:6px}'
                'details.ent[open] summary{border-bottom:1px solid #d5dce8;border-radius:6px 6px 0 0}'
-               'details.ent .body{padding:4px 12px 10px}.miss{color:#b00020;font-weight:600;font-size:13px}#tg{margin:0 0 10px;padding:4px 12px;cursor:pointer}')
+               'details.ent .body{padding:4px 12px 10px}.miss{color:#d55e00;font-weight:600;font-size:13px}#tg{margin:0 0 10px;padding:4px 12px;cursor:pointer}')
 
 def _sa_summary(code, n):
     """(date, name) from Stage A JSON fields for entry n, if present."""
@@ -306,7 +328,7 @@ ROW_JS = ' '.join(l.strip() for l in r"""
 function oprPost(btn,payload,busy,onOk,errEl){
  if(!btn||btn.disabled||window.oprBusy)return;window.oprBusy=true;var lbl=btn.innerHTML;btn.disabled=true;if(busy)btn.textContent=busy;
  if(errEl){errEl.textContent='';}
- function fail(t){window.oprBusy=false;btn.disabled=false;btn.innerHTML=lbl;if(errEl){errEl.textContent=t;errEl.style.color='#b00020';}}
+ function fail(t){window.oprBusy=false;btn.disabled=false;btn.innerHTML=lbl;if(errEl){errEl.textContent='\u2716 '+t;errEl.style.color='#d55e00';}}
  fetch(__URL__,{method:'POST',headers:{'Content-Type':'application/json','X-OPR-Approve':'1'},body:JSON.stringify(payload)})
  .then(function(x){if(window.oprAuth&&window.oprAuth.fail(x)){var go=window.oprAuth.login();return {ok:false,_http:401,error:go?'login required, opening the login page…':'login required, please log in again'};}return x.json().then(function(j){j._http=x.status;return j;},function(){return {ok:false,error:'HTTP '+x.status,_http:x.status};});})
  .then(function(j){if(!j.ok){fail('Not done ('+(j._http||'?')+'): '+j.error);return;}window.oprBusy=false;onOk(j);})
@@ -316,7 +338,7 @@ function oprConfirm(b){var d=b.dataset;oprPost(b,{code:__CODE__,action:'confirm_
  function(j){var t=b.previousSibling;if(t&&t.classList&&t.classList.contains('tq')){var q=t.querySelector('.qm');if(q)q.remove();t.classList.add('confirmed');}b.remove();},oprErr(b));}
 function oprEntryApprove(ev,b){ev.preventDefault();ev.stopPropagation();oprPost(b,{code:__CODE__,action:'approve_transcription_entry',entry_id:b.dataset.e},'Approving\u2026',
  function(j){var c=document.createElement('span');c.className='entok';c.textContent='Approved'+(String(j.locked_by||'').match(/T(\d\d:\d\d)/)?' '+j.locked_by.match(/T(\d\d:\d\d)/)[1]:'');
-  b.replaceWith(c);if(j.row_approved){var ch=document.querySelector('#stk .chip.segchip');if(ch){ch.style.cssText='background:#1e7e34;color:#fff;border:1px solid #1e7e34';ch.textContent='Approved';}}},
+  b.replaceWith(c);if(j.row_approved){var ch=document.querySelector('#stk .chip.segchip');if(ch){ch.style.cssText='';ch.textContent='Approved';}}},
  oprErr(b));}
 window.oprOnRow=function(c){var fb=c.feedback||{},en=c.entries||{},now=Date.now();
  [].forEach.call(document.querySelectorAll('.fbchip'),function(el){var f=fb[el.dataset.e],t='',cl='fbchip';
@@ -380,13 +402,13 @@ def write_transcription_pages(rows, man=None):
                                      f'<pre class="transcription stagea-text">{_render_tokens(t, eid, fld, conf, E, regained)}</pre>' for fld, t in flds)
                            for tag, l, eid, lk, flds in sa[n])
             secs.append(f'<details class="ent" id="{E(en)}"><summary>{summ}</summary><div class="body">{body}</div></details>\n')
-        banner = ('<div class="draftban" style="background:#fff3cd;border:2px solid #e0a800;border-radius:8px;padding:10px 14px;margin:0 0 14px;'
-                  'font-weight:700;font-size:16px;color:#7a5300">DRAFT \u2013 this transcription is not yet approved.</div>\n'
+        banner = ('<div class="draftban" style="background:#e69f00;border:2px solid #000;border-radius:8px;padding:10px 14px;margin:0 0 14px;'
+                  'font-weight:800;font-size:16px;color:#000">\u26a0\ufe0e DRAFT \u2013 this transcription is not yet approved (needs your Approve).</div>\n'
                   if sl.startswith('draft') else '')
         spouse = (' &times; ' + E(r['spouse'])) if r.get('spouse') else ''
         page = ('<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width,initial-scale=1">' + NOCACHE + '\n'
-            f'<title>Row {E(r["id"])} {E(c)} \u2013 transcription</title><style>{PAGE_CSS}{DETAILS_CSS}figure.crop{{margin:8px 0}}figure.crop img{{max-width:100%;height:auto;display:block;border:1px solid #ddd}}</style></head><body>\n'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">' + NOCACHE + '<script>' + CHIP_JS + '</script>\n'
+            f'<title>Row {E(r["id"])} {E(c)} \u2013 transcription</title><style>{PAGE_CSS}{CHIP_CSS}{DETAILS_CSS}figure.crop{{margin:8px 0}}figure.crop img{{max-width:100%;height:auto;display:block;border:1px solid #ddd}}</style></head><body>\n'
             '<p><a href="../index.html">&larr; Dashboard</a></p>\n'
             f'<h1>Row {E(r["id"])}: {E(r["name"])} <span class="fn">({E(c)})</span> \u2013 Transcription</h1>\n'
             + _sticky(r, 'Transcription', st, E,
@@ -452,9 +474,8 @@ def _crop_jpg(src, dst):
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dst), suffix='.jpg'); os.close(fd)
         im.save(tmp, 'JPEG', quality=SEG_Q, optimize=True); os.chmod(tmp, 0o644); os.replace(tmp, dst)
 
-# Segmentation stages (overrides.json "segmentation"): chip colours shared with index.html (.s-redoq/.s-redoing/.s-recut)
-SEG_STAGE_COL = {'queued for redo': ('#dde3ea', '#34495e', '#8a9bb0'), 'redoing': ('#6f42c1', '#fff', '#5a32a3'),
-                 'recut': ('#0f8b8d', '#fff', '#0b6e70')}
+# Segmentation stages (overrides.json "segmentation"); chip style via _kind/CHIP_CSS (Queued for redo + Recut = needs Stephen, Redoing = processing)
+SEG_STAGE_COL = {'queued for redo': None, 'redoing': None, 'recut': None}   # stage names only; colours come from CHIP_CSS (k-need / k-proc)
 def _stage(sl):
     return next((k for k in SEG_STAGE_COL if sl.startswith(k)), None)
 
@@ -476,7 +497,7 @@ EXTRACTION_APPROVE_ENABLED = True          # Stephen 2026-09-29: extraction Appr
 def _approve_btn(r, action, msg=None):
     """Approve button + script for the sticky header; one click POSTs {code, action} to approve_server.py (tailnet only).
     No confirm/alert. Disabled on first click (double-click guard; server 409 is the backstop). Success: the button becomes a
-    green 'Approved - N <unit> locked at HH:MM CT' chip and the header chip turns Approved, in place (no reload; the live
+    blue \u2713 'Approved - N <unit> locked at HH:MM CT' chip and the header chip turns Approved, in place (no reload; the live
     poller then swaps in the regenerated page). Errors are shown inline and the button is re-enabled."""
     unit = {'segmentation': 'crops', 'transcription': 'entries', 'extraction': 'records', 'recut': ''}[action]
     if action == 'recut':
@@ -495,17 +516,17 @@ _APPROVE_JS = ' '.join(l.strip() for l in r'''function oprApprove(){
  window.oprBusy=true;b.disabled=true;b.textContent=BUSY;
  function say(t,col){m.textContent=t;m.style.color=col||"#555";m.style.fontWeight="700";}
  say("");
- function fail(t){window.oprBusy=false;b.disabled=false;b.innerHTML=LBL;say(t,"#b00020");}
+ function fail(t){window.oprBusy=false;b.disabled=false;b.innerHTML=LBL;say("\u2716 "+t,"#d55e00");}
  fetch(U,{method:"POST",headers:{"Content-Type":"application/json","X-OPR-Approve":"1"},body:JSON.stringify({code:C,action:A})})
  .then(function(x){if(window.oprAuth&&window.oprAuth.fail(x)){var go=window.oprAuth.login();return {ok:false,_http:401,error:go?"login required, opening the login page\u2026":"login required, please log in again"};}return x.json().then(function(j){j._http=x.status;return j;},function(){return {ok:false,error:"HTTP "+x.status,_http:x.status};});})
  .then(function(j){
   if(!j.ok){fail((A=="recut"?"Recut not requested":"Not approved")+" ("+(j._http||"?")+"): "+j.error);return;}
-  if(A=="recut"){var q="background:#dde3ea;color:#34495e;border:1px solid #8a9bb0",tq=(String(j.time||"").match(/T(\d\d:\d\d)/)||[])[1]||"";
+  if(A=="recut"){var q="",tq=(String(j.time||"").match(/T(\d\d:\d\d)/)||[])[1]||"";
    var d=document.createElement("span");d.className="chip apvdone";d.style.cssText=q+";font-size:13px;padding:4px 12px";
    d.textContent="Queued for redo"+(tq?" \u2013 requested at "+tq+" CT":"");b.replaceWith(d);say("");
    var c2=document.querySelector("#stk .chip.segchip");if(c2){c2.style.cssText=q;c2.textContent="Queued for redo";}window.oprBusy=false;return;}
   var n=(j.crops!=null?j.crops:j.files),tm=(String(j.locked_by||"").match(/T(\d\d:\d\d)/)||[])[1]||"";
-  var g="background:#1e7e34;color:#fff;border:1px solid #1e7e34";
+  var g="";
   var ok=document.createElement("span");ok.className="chip apvdone";ok.style.cssText=g+";font-size:13px;padding:4px 12px";
   ok.textContent="Approved \u2013 "+n+" "+UNIT+" locked"+(tm?" at "+tm+" CT":"");b.replaceWith(ok);say("");
   var ch=document.querySelector("#stk .chip.segchip");if(ch){ch.style.cssText=g;ch.textContent="Approved";}
@@ -516,7 +537,7 @@ _APPROVE_JS = ' '.join(l.strip() for l in r'''function oprApprove(){
 }'''.split('\n'))
 
 # ---- live update: every detail page polls status (15 s) and soft-swaps its body from <code>.bundle.js when its rev changes ----
-AUTH_JS = "(function(R){if(window.oprAuth)return; var file=location.protocol=='file:',tried=false,pub=/^(www\\.)?oldparishrecords\\.com$/i.test(location.hostname); function u(p){return new URL(R+p,location.href).href;} function fail(r){if(file||!r)return false;if(r.status===401)return true; try{if(r.redirected&&/\\/login$/.test(new URL(r.url).pathname))return true;}catch(e){} return (r.headers.get('content-type')||'').toLowerCase().indexOf('text/html')>=0;} function login(){if(file)return false;if(tried)return true;tried=true; var k='oprLoginTry',now=Date.now(),last=0;try{last=+sessionStorage.getItem(k)||0;}catch(e){} if(now-last<20000)return false; try{sessionStorage.setItem(k,String(now));}catch(e){} location.assign(u('login')+'?next='+encodeURIComponent(location.pathname+location.search+location.hash));return true;} function link(){if(!pub||!document.body||document.getElementById('oprlogout'))return; var a=document.createElement('a');a.id='oprlogout';a.href=u('logout');a.textContent='Log out'; a.style.cssText='position:fixed;right:10px;bottom:6px;z-index:50;font:12px system-ui,sans-serif;color:#666;background:rgba(255,255,255,.85);padding:1px 6px;border-radius:6px;text-decoration:none'; document.body.appendChild(a);} window.oprAuth={fail:fail,login:login,link:link,url:u}; if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',link);else link(); })(__ROOT__);"   # login gate helper (oldparishrecords.com): 401 -> login?next=..., Log out link; inert on file://
+AUTH_JS = "(function(R){if(window.oprAuth)return; var file=location.protocol=='file:',tried=false,pub=/^(www\\.)?oldparishrecords\\.com$/i.test(location.hostname); function u(p){return new URL(R+p,location.href).href;} function fail(r){if(file||!r)return false;if(r.status===401)return true; try{if(r.redirected&&/\\/login$/.test(new URL(r.url).pathname))return true;}catch(e){} return (r.headers.get('content-type')||'').toLowerCase().indexOf('text/html')>=0;} function login(){if(file)return false;if(tried)return true;tried=true; var k='oprLoginTry',now=Date.now(),last=0;try{last=+sessionStorage.getItem(k)||0;}catch(e){} if(now-last<20000)return false; try{sessionStorage.setItem(k,String(now));}catch(e){} location.assign(u('login')+'?next='+encodeURIComponent(location.pathname+location.search+location.hash));return true;} function link(){if(!pub||!document.body||document.getElementById('oprlogout'))return; var a=document.createElement('a');a.id='oprlogout';a.href=u('logout');a.textContent='Log out'; a.style.cssText='position:fixed;right:calc(10px + env(safe-area-inset-right));bottom:calc(6px + env(safe-area-inset-bottom));z-index:50;font:12px system-ui,sans-serif;color:#666;background:rgba(255,255,255,.85);padding:1px 6px;border-radius:6px;text-decoration:none'; document.body.appendChild(a);} window.oprAuth={fail:fail,login:login,link:link,url:u}; if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',link);else link(); })(__ROOT__);"   # login gate helper (oldparishrecords.com): 401 -> login?next=..., Log out link; inert on file://
 def _auth_js(root): return AUTH_JS.replace('__ROOT__', json.dumps(root))
 
 LIVE_JS = ' '.join(l.strip() for l in r'''(function(){
@@ -551,6 +572,9 @@ def _page_rev(page):
 
 def _write_page(dirpath, c, page, kind, r):
     """Write <c>.html (with rev meta + live script) and <c>.bundle.js (same body, for soft swaps incl. file://)."""
+    page = page.replace('content="width=device-width,initial-scale=1"', 'content="width=device-width,initial-scale=1,viewport-fit=cover"')
+    page = page.replace('</head>', f'<style>{MOBILE_CSS}</style><script>{MOBILE_JS}</script></head>', 1)
+    page = re.sub(r'(?<!title="Open full size">)(<img src="([^"]+)"[^>]*>)', r'<a class="full" href="\2" target="_blank" rel="noopener" title="Open full size">\1</a>', page)   # crops tappable
     rev = _page_rev(page); r[kind]['rev'] = rev
     head = (f'<meta name="opr-rev" content="{rev}" data-kind="{kind}" data-code="{_html.escape(c, quote=True)}">'
             f'<script>{_auth_js("../")}</script><script>{LIVE_JS}</script>')
@@ -584,26 +608,23 @@ def _json_field_counts(paths, key, fallback=None):
     return len(paths), nl
 
 def _chip(st, E):
-    """Status chip used in every detail-page header (same colours as the dashboard)."""
-    sl = str(st).lower(); stg = _stage(sl)
-    col = (SEG_STAGE_COL[stg] if stg else ('#1e7e34', '#fff', '#1e7e34') if sl.startswith(('approved', 'locked', 'done', 'complete'))
-           else ('#fff3cd', '#7a5300', '#ecd47e') if sl.startswith('draft') or 'hold' in sl else ('#d6e9fb', '#1a3d7c', '#9cc3ea') if 'progress' in sl
-           else ('#e9ecef', '#555', '#ccc'))
-    return col, f'<span class="chip segchip" style="background:{col[0]};color:{col[1]};border:1px solid {col[2]}">{E(st)}</span>'
+    """Status chip used in every detail-page header: colour-blind-safe class from _kind (CHIP_CSS), no inline colours."""
+    k = _kind(st)
+    return k, f'<span class="chip segchip{" k-" + k if k else ""}">{E(st)}</span>'
 
 def _sticky(r, kind, st, E, btn='', tail='', line2='', below=''):
     """Shared sticky header for extraction, transcription and segmentation pages: row, book, page, status chip (+ extras)."""
     return (f'<div class="stk" id="stk"><div class="hdr">'
             + (f'<span class="apvbox">{btn.strip()}</span>' if btn.strip() else '') +
             f'<b>Row</b> {E(r["id"])} &nbsp; <b>Book</b> {E(r["book"])} &nbsp; <b>Page</b> {E(r.get("page"))} &nbsp; <b>{E(kind)}</b> {_chip(st, E)[1]}{tail}'
-            + (f'<br>\n{line2}' if line2 else '') + f'</div>{below}</div>\n')
+            + '<button class="stktog" type="button" aria-expanded="false" aria-label="Show or hide the header details"></button>'
+            + (f'<span class="l2"><br>\n{line2}</span>' if line2 else '') + f'</div>{below}</div>\n')
 
 def _seg_header(r, st, n, E, ents=()):
     """Status header for segmentation pages; Draft rows get an Approve button (POST to approve_server.py)."""
     sl = st.lower(); stg = _stage(sl)
-    col = (SEG_STAGE_COL[stg] if stg else ('#1e7e34', '#fff', '#1e7e34') if sl.startswith('approved')
-           else ('#fff3cd', '#7a5300', '#ecd47e') if sl.startswith('draft') else ('#e9ecef', '#555', '#ccc'))
-    chip = f'<span class="segchip" style="background:{col[0]};color:{col[1]};border:1px solid {col[2]}">{E(st)}</span>'
+    k = _kind(st)
+    chip = f'<span class="segchip{" k-" + k if k else ""}">{E(st)}</span>'
     btn = ''
     note = {'queued for redo': 'A re-cut is queued. The crops below are the OLD cut; no approval until the re-cut is ready (Recut).',
             'redoing': 'The Entry Segmenter is re-cutting this page now. Crops below are the old cut or in progress; no approval yet.'}.get(stg, '')
@@ -616,10 +637,10 @@ def _seg_header(r, st, n, E, ents=()):
         btn = _approve_btn(r, 'segmentation', f"Approve all {n} crops of row {r['id']} ({r['code']})? This locks them in the Entry Segmenter manifests.")
     line2 = (f'<b>Image</b> {E(r["image"])} &nbsp; <span class="src">{E(r["segmentation"].get("detail", ""))}</span> &nbsp; '
              f'<a href="{E(r["url"])}" target="_blank" rel="noopener">Matricula page</a>')
-    below = (f'<div class="stagenote" style="margin-top:6px;padding:6px 10px;border-radius:6px;background:{col[0]};color:{col[1]};font-weight:600">{E(note)}</div>' if note else '')
+    below = (f'<div class="stagenote" class="k-{k}" style="margin-top:6px;padding:6px 10px;border-radius:6px;white-space:normal">{E(note)}</div>' if note else '')
     return _sticky(r, 'Segmentation', st, E, btn=(' ' + btn if btn and not btn.startswith(' ') else btn), tail=f' &nbsp; <b>Crops</b> {n}', line2=line2, below=below)
 
-CORR_JS = '(function(){if(window.oprCorr)return;window.oprCorr=1; function C(){var m=document.querySelector(\'meta[name="opr-rev"]\');return m?m.getAttribute(\'data-code\'):\'\';} function box(el){return el&&el.closest?el.closest(\'.corr\'):null;} function reset(b){var p=b.querySelector(\'.corrpanel\');if(!p)return;p.hidden=true;b.removeAttribute(\'data-open\'); [].forEach.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){c.checked=false;});p.querySelector(\'textarea\').value=\'\'; var er=b.querySelector(\'.correrr\');if(er)er.textContent=\'\';var cb=b.querySelector(\'.corrbtn\');if(cb)cb.hidden=false;} function send(b,btn){var p=b.querySelector(\'.corrpanel\'),err=b.querySelector(\'.correrr\'); var iss=[].filter.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){return c.checked;}).map(function(c){return c.value;}); var note=p.querySelector(\'textarea\').value.trim(); if(!iss.length&&!note){err.textContent=\'Tick at least one box or write a note.\';err.style.color=\'#b00020\';return;} if(btn.disabled||window.oprBusy)return;window.oprBusy=true;btn.disabled=true;var lbl=btn.textContent;btn.textContent=\'Sending\\u2026\';err.textContent=\'\'; function fail(t){window.oprBusy=false;btn.disabled=false;btn.textContent=lbl;err.textContent=t;err.style.color=\'#b00020\';} fetch(__URL__,{method:\'POST\',headers:{\'Content-Type\':\'application/json\',\'X-OPR-Approve\':\'1\'},body:JSON.stringify({code:C(),action:\'segmentation_correction\',entry_id:b.getAttribute(\'data-e\'),issues:iss,note:note})}) .then(function(x){if(window.oprAuth&&window.oprAuth.fail(x)){var go=window.oprAuth.login();return {ok:false,_http:401,error:go?\'login required, opening the login page\\u2026\':\'login required, please log in again\'};} return x.json().then(function(j){j._http=x.status;return j;},function(){return {ok:false,error:\'HTTP \'+x.status,_http:x.status};});}) .then(function(j){if(!j.ok){fail(\'Not sent (\'+(j._http||\'?\')+\'): \'+j.error);return;} window.oprBusy=false;b.removeAttribute(\'data-open\');p.hidden=true;reset(b);var cb=b.querySelector(\'.corrbtn\');if(cb)cb.hidden=true; var d=document.createElement(\'span\');d.className=\'chip corrsent\';d.textContent=\'Correction sent \\u00b7 queued\'+(j.recut_request?\' (recut request)\':\'\');b.insertBefore(d,b.firstChild); var pe=b.querySelector(\'.corrpend\');if(pe){pe.textContent=\'Correction pending: \'+(j.issues||[]).concat(j.note?[]:[]).join(\', \');pe.hidden=false;} var ch=document.querySelector(\'#stk .chip.segchip\');if(ch&&j.segmentation){ch.style.cssText=\'background:#dde3ea;color:#34495e;border:1px solid #8a9bb0\';ch.textContent=j.segmentation;}}) .catch(function(e){fail(\'Could not reach the approve service: \'+e);});} document.addEventListener(\'click\',function(ev){var t=ev.target;if(!t||!t.classList)return; if(t.classList.contains(\'corrbtn\')){var b=box(t);b.querySelector(\'.corrpanel\').hidden=false;b.setAttribute(\'data-open\',\'1\');t.hidden=true;var er=b.querySelector(\'.correrr\');if(er)er.textContent=\'\';return;} if(t.classList.contains(\'corrcancel\')){reset(box(t));return;} if(t.classList.contains(\'corrsend\')){send(box(t),t);}}); window.oprKeep=function(){return [].map.call(document.querySelectorAll(\'.corr[data-open]\'),function(b){var p=b.querySelector(\'.corrpanel\'),ta=p.querySelector(\'textarea\'); return {e:b.getAttribute(\'data-e\'),checks:[].filter.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){return c.checked;}).map(function(c){return c.value;}), note:ta.value,focus:document.activeElement===ta,s0:ta.selectionStart,s1:ta.selectionEnd,err:(b.querySelector(\'.correrr\')||{}).textContent||\'\'};});}; window.oprRestore=function(k){(k||[]).forEach(function(o){var b=[].filter.call(document.querySelectorAll(\'.corr\'),function(x){return x.getAttribute(\'data-e\')===o.e;})[0];if(!b)return; var p=b.querySelector(\'.corrpanel\');p.hidden=false;b.setAttribute(\'data-open\',\'1\');var cb=b.querySelector(\'.corrbtn\');if(cb)cb.hidden=true; [].forEach.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){c.checked=o.checks.indexOf(c.value)>=0;});var ta=p.querySelector(\'textarea\');ta.value=o.note; if(o.err){var er=b.querySelector(\'.correrr\');if(er)er.textContent=o.err;} if(o.focus){ta.focus();try{ta.setSelectionRange(o.s0,o.s1);}catch(e){}}});}; window.oprOnRow=function(c){var cr=c.corrections||{};[].forEach.call(document.querySelectorAll(\'.corr\'),function(b){var pe=b.querySelector(\'.corrpend\');if(!pe)return; var t=cr[b.getAttribute(\'data-e\')];if(t){pe.textContent=\'Correction pending: \'+t;pe.hidden=false;}else if(!b.querySelector(\'.corrsent\')){pe.textContent=\'\';pe.hidden=true;}});}; })();'
+CORR_JS = '(function(){if(window.oprCorr)return;window.oprCorr=1; function C(){var m=document.querySelector(\'meta[name="opr-rev"]\');return m?m.getAttribute(\'data-code\'):\'\';} function box(el){return el&&el.closest?el.closest(\'.corr\'):null;} function reset(b){var p=b.querySelector(\'.corrpanel\');if(!p)return;p.hidden=true;b.removeAttribute(\'data-open\'); [].forEach.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){c.checked=false;});p.querySelector(\'textarea\').value=\'\'; var er=b.querySelector(\'.correrr\');if(er)er.textContent=\'\';var cb=b.querySelector(\'.corrbtn\');if(cb)cb.hidden=false;} function send(b,btn){var p=b.querySelector(\'.corrpanel\'),err=b.querySelector(\'.correrr\'); var iss=[].filter.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){return c.checked;}).map(function(c){return c.value;}); var note=p.querySelector(\'textarea\').value.trim(); if(!iss.length&&!note){err.textContent=\'\\u2716 Tick at least one box or write a note.\';err.style.color=\'#d55e00\';return;} if(btn.disabled||window.oprBusy)return;window.oprBusy=true;btn.disabled=true;var lbl=btn.textContent;btn.textContent=\'Sending\\u2026\';err.textContent=\'\'; function fail(t){window.oprBusy=false;btn.disabled=false;btn.textContent=lbl;err.textContent=\'\\u2716 \'+t;err.style.color=\'#d55e00\';} fetch(__URL__,{method:\'POST\',headers:{\'Content-Type\':\'application/json\',\'X-OPR-Approve\':\'1\'},body:JSON.stringify({code:C(),action:\'segmentation_correction\',entry_id:b.getAttribute(\'data-e\'),issues:iss,note:note})}) .then(function(x){if(window.oprAuth&&window.oprAuth.fail(x)){var go=window.oprAuth.login();return {ok:false,_http:401,error:go?\'login required, opening the login page\\u2026\':\'login required, please log in again\'};} return x.json().then(function(j){j._http=x.status;return j;},function(){return {ok:false,error:\'HTTP \'+x.status,_http:x.status};});}) .then(function(j){if(!j.ok){fail(\'Not sent (\'+(j._http||\'?\')+\'): \'+j.error);return;} window.oprBusy=false;b.removeAttribute(\'data-open\');p.hidden=true;reset(b);var cb=b.querySelector(\'.corrbtn\');if(cb)cb.hidden=true; var d=document.createElement(\'span\');d.className=\'chip corrsent\';d.textContent=\'Correction sent \\u00b7 queued\'+(j.recut_request?\' (recut request)\':\'\');b.insertBefore(d,b.firstChild); var pe=b.querySelector(\'.corrpend\');if(pe){pe.textContent=\'Correction pending: \'+(j.issues||[]).concat(j.note?[]:[]).join(\', \');pe.hidden=false;} var ch=document.querySelector(\'#stk .chip.segchip\');if(ch&&j.segmentation){ch.style.cssText=\'\';ch.textContent=j.segmentation;}}) .catch(function(e){fail(\'Could not reach the approve service: \'+e);});} document.addEventListener(\'click\',function(ev){var t=ev.target;if(!t||!t.classList)return; if(t.classList.contains(\'corrbtn\')){var b=box(t);b.querySelector(\'.corrpanel\').hidden=false;b.setAttribute(\'data-open\',\'1\');t.hidden=true;var er=b.querySelector(\'.correrr\');if(er)er.textContent=\'\';return;} if(t.classList.contains(\'corrcancel\')){reset(box(t));return;} if(t.classList.contains(\'corrsend\')){send(box(t),t);}}); window.oprKeep=function(){return [].map.call(document.querySelectorAll(\'.corr[data-open]\'),function(b){var p=b.querySelector(\'.corrpanel\'),ta=p.querySelector(\'textarea\'); return {e:b.getAttribute(\'data-e\'),checks:[].filter.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){return c.checked;}).map(function(c){return c.value;}), note:ta.value,focus:document.activeElement===ta,s0:ta.selectionStart,s1:ta.selectionEnd,err:(b.querySelector(\'.correrr\')||{}).textContent||\'\'};});}; window.oprRestore=function(k){(k||[]).forEach(function(o){var b=[].filter.call(document.querySelectorAll(\'.corr\'),function(x){return x.getAttribute(\'data-e\')===o.e;})[0];if(!b)return; var p=b.querySelector(\'.corrpanel\');p.hidden=false;b.setAttribute(\'data-open\',\'1\');var cb=b.querySelector(\'.corrbtn\');if(cb)cb.hidden=true; [].forEach.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){c.checked=o.checks.indexOf(c.value)>=0;});var ta=p.querySelector(\'textarea\');ta.value=o.note; if(o.err){var er=b.querySelector(\'.correrr\');if(er)er.textContent=o.err;} if(o.focus){ta.focus();try{ta.setSelectionRange(o.s0,o.s1);}catch(e){}}});}; window.oprOnRow=function(c){var cr=c.corrections||{};[].forEach.call(document.querySelectorAll(\'.corr\'),function(b){var pe=b.querySelector(\'.corrpend\');if(!pe)return; var t=cr[b.getAttribute(\'data-e\')];if(t){pe.textContent=\'Correction pending: \'+t;pe.hidden=false;}else if(!b.querySelector(\'.corrsent\')){pe.textContent=\'\';pe.hidden=true;}});}; })();'
 CORR_ISSUES = [('top_cut', 'Top cut off'), ('bottom_cut', 'Bottom cut off'), ('left_cut', 'Left edge cut'), ('right_cut', 'Right edge cut'),
                ('neighbour', 'Includes part of neighbour entry'), ('merge_above', 'Merge with entry above'), ('merge_below', 'Merge with entry below'),
                ('split', 'Split this entry'), ('wrong_label', 'Wrong entry number or label'), ('other', 'Other')]
@@ -627,8 +648,8 @@ CORR_CSS = ('.corr{margin-top:6px}.corrbtn{font-size:12px;padding:2px 10px;borde
             '.corrpanel{border:1px solid #e0a800;background:#fffaf0;border-radius:6px;padding:8px 10px;margin-top:6px;font-size:13px}'
             '.corrpanel label{display:inline-block;margin:2px 14px 2px 0;white-space:nowrap}.corrpanel textarea{width:100%;box-sizing:border-box;min-height:44px;margin:6px 0;font:inherit}'
             '.corrpanel button{font-size:13px;padding:3px 12px;margin-right:8px;border-radius:12px;cursor:pointer}.corrsend{border:1px solid #b36b00;background:#b36b00;color:#fff}.corrcancel{border:1px solid #999;background:#fff}'
-            '.corrpend{display:inline-block;background:#fff3cd;color:#7a5300;border:1px solid #ecd47e;border-radius:12px;padding:1px 10px;font-size:12px;font-weight:700;margin-left:6px}'
-            '.corrsent{display:inline-block;background:#dde3ea;color:#34495e;border:1px solid #8a9bb0;border-radius:12px;padding:1px 10px;font-size:12px;font-weight:700;margin-right:6px}.correrr{margin-left:6px;font-weight:700}')
+            '.corrpend{display:inline-block;background:#e69f00;color:#000;border:2px solid #000;border-radius:12px;padding:1px 10px;font-size:12px;font-weight:700;margin-left:6px}'
+            '.corrsent{display:inline-block;background:#e69f00;color:#000;border:2px solid #000;border-radius:12px;padding:1px 10px;font-size:12px;font-weight:700;margin-right:6px}.correrr{margin-left:6px;font-weight:700}.corr [hidden]{display:none!important}')
 
 def _corrections(code):
     """{entry_id: 'top cut off, split this entry; note: “…”'} from entries/_corrections/<code>.json (pending only)."""
@@ -683,7 +704,7 @@ def write_segmentation_pages(rows, man):
                 pub[os.path.abspath(src)] = pub[os.path.splitext(os.path.basename(src))[0]] = (f'{c}/{fn}', int(os.path.getmtime(src)))
                 tag = f'<img src="{E(c)}/{E(fn)}?v={int(os.path.getmtime(src))}" alt="{E(lab)}" loading="lazy">'
             except Exception as ex: tag = f'<p class="src">crop unavailable: {E(ex)}</p>'
-            col = '#1e7e34' if cs == 'locked' else '#b36b00'
+            col = '#0b4f8a' if cs == 'locked' else '#7a4a00'
             mlab = next((str(e[k]).strip() for k in ('label', 'crop_label', 'segment_label', 'description', 'key_label') if e.get(k) and str(e[k]).strip()), '')
             blocks.append(f'<figure class="crop"><figcaption><b>Entry {E(lab)}</b> <span class="st" style="color:{col};border-color:{col}">{cs}</span> '
                           f'<span class="fn">{E(e.get("entry_kind", ""))}</span>'
@@ -715,9 +736,9 @@ def write_segmentation_pages(rows, man):
         if not sq: continue                                           # crops published for the transcription page only
         r['segmentation']['link'] = f'segmentation/{c}.html'
         page = ('<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width,initial-scale=1">' + NOCACHE + '\n'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">' + NOCACHE + '<script>' + CHIP_JS + '</script>\n'
             f'<script>{CORR_JS.replace("__URL__", _api_js())}</script>'
-            f'<title>Row {E(r["id"])} {E(c)} \u2013 segmentation</title><style>{PAGE_CSS}{CORR_CSS}'
+            f'<title>Row {E(r["id"])} {E(c)} \u2013 segmentation</title><style>{PAGE_CSS}{CHIP_CSS}{CORR_CSS}'
             'figure.crop{margin:0 0 18px;border:1px solid #ddd;border-radius:6px;padding:8px;background:#fafafa}'
             'figure.crop img{max-width:100%;height:auto;display:block;margin-top:6px}'
             '.segchip{display:inline-block;padding:2px 10px;border-radius:12px;font-size:13px;font-weight:700}'
@@ -879,7 +900,7 @@ def build_meta(rows, now):
          'Stores the flag in <code>entries/_corrections/&lt;code&gt;.json</code> (pending, several per row/entry; backup in <code>_approve_backups/segmentation_correction/</code>) '
          'and sets the row to <b>Queued for redo</b> (left alone if already Queued/Redoing) with the recut-style transcription hold (<code>overrides.json</code> backup <code>.bakN</code>). '
          'Refused (409) for a locked crop unless the whole row is Approved; on an Approved row it becomes a recut request (<code>recut_request: true</code>). '
-         'Queue <code>kind: segmentation_correction</code>. Each flagged crop shows an amber <b>Correction pending</b> chip. Next: the Entry Segmenter re-cuts; '
+         'Queue <code>kind: segmentation_correction</code>. Each flagged crop shows a \u26a0 <b>Correction pending</b> chip (needs-Stephen style). Next: the Entry Segmenter re-cuts; '
          '<code>setseg.py &lt;code&gt; recut</code> archives the row\u2019s corrections (<code>entries/_corrections/archive/</code>), <code>setseg.py &lt;code&gt; clear</code> cancels them. Never touches manifests, crops or Stage A/B.'),
         ('\u2713 Confirm reading', 'Removes exactly one <code>[?]</code> from the token in the Stage A text; backup in <code>_approve_backups/confirm_reading/</code>; record in '
          '<code>_confirmed_readings.json</code>, pending item in <code>_feedback_status.json</code>. Queue <code>kind: reading_confirmed</code>. Next: the Entry Transcriber '
@@ -888,18 +909,24 @@ def build_meta(rows, now):
     h.append(sec('4. What each action does', ul([f'<b>{e(a)}</b>: {b}' for a, b in act]) +
                  '<p class="mnote">All actions: one click, no confirmation dialog, timestamped backups, atomic writes. Queue lines go to <code>dashboard/notify_queue.jsonl</code> '
                  '(read by Chief\u2019s watcher; Chief QC). Page Structure (stage0) is upstream of segmentation and has no dashboard action.</p>'))
-    h.append(sec('5. Status words and chips', ul([
-        chip('Approved', '#1e7e34', '#fff') + ' locked (crops, entries or records).',
-        chip('Draft 2/5', '#fff3cd', '#7a5b00', '#ecd47e') + ' work exists, not approved; N/M = entries approved so far.',
-        chip('On hold until crops approved', '#fff3cd', '#7a5b00', '#ecd47e') + ' transcription paused by a recut.',
-        chip('Queued', '#ece2f7', '#5a2d8a', '#cdb4ea') + ' waiting for the next agent.',
-        chip('In progress', '#d6e9fb', '#0b4f8a', '#9cc7ef') + ' an agent is working on it.',
-        chip('Queued for redo', '#dde3ea', '#34495e', '#8a9bb0') + chip('Redoing', '#6f42c1', '#fff', '#5a32a3') + chip('Recut', '#0f8b8d', '#fff', '#0b6e70') +
-        ' segmentation redo stages; Approve is offered at Recut.',
-        chip('Blocked', '#f8d7da', '#842029', '#eea3aa') + ' error or blocked.',
-        chip('Not started', '#eee', '#777') + ' nothing yet.',
-        'Per-entry feedback on transcription pages: <b>Transcriber updating\u2026</b> (amber, pending/processing), <b>Waiting on transcriber</b> '
-        '(muted red, pending over 30 min), <b>Updated</b> (green, 60 s after done).'])))
+    def lg(k, t): return f'<span class="lgc k-{k}">{e(t)}</span>'
+    h.append(sec('5. Status words and chips (colour-blind safe)', '<p class="mnote">Okabe-Ito colours; every state also has its own symbol and border, so colour is never the only cue '
+        '(checked in greyscale and a deuteranopia simulation). The chip class follows the chip <i>text</i>, so it changes in place when a poll or a click changes the state. '
+        'Legend at the top of the Pipeline tab.</p>' + ul([
+        lg('need', 'Needs you') + '<b>NEEDS STEPHEN</b> (most prominent): solid amber #e69f00, black bold text, 2px black border, \u26a0; gentle pulse unless the device asks for reduced motion. '
+        'States: ' + lg('need', 'Queued for redo') + lg('need', 'Recut') + lg('need', 'Draft 2/5') + lg('need', 'Correction pending: \u2026') +
+        ' (Queued for redo is on this list at Stephen\u2019s request, although the Entry Segmenter acts next). Also: the per-entry <b>Approve entry</b> buttons on unapproved entries, '
+        'the DRAFT banner, and the <span class="qbadge">[?] 3</span> badge = unconfirmed readings in that entry.',
+        lg('proc', 'Processing') + '<b>PROCESSING</b> (an agent or automated step is next): grey #eeeeee, #333 text, 1px dashed #888 border, \u23f3. States: ' +
+        lg('proc', 'Redoing') + lg('proc', 'Queued') + lg('proc', 'First pass in progress') + lg('proc', 'In progress') + lg('proc', 'Transcriber updating\u2026') +
+        lg('proc', 'On hold until crops approved') + ' (and extracting / transcribing / Approving\u2026 / Requesting\u2026). ' +
+        lg('wait', 'Waiting on transcriber') + ' = still processing but pending over 30 min (symbol \u23f3!, darker dashed border).',
+        lg('done', 'Approved') + '<b>DONE</b> (quiet): pale blue #e8f1fa, #0b4f8a text, 1px #0072b2 border, \u2713. States: Approved, locked, the in-place '
+        '\u201cApproved \u2013 N crops locked at HH:MM CT\u201d chip, per-entry \u201cApproved HH:MM\u201d, and ' + lg('done', 'Updated') + ' (60 s after the transcriber finishes).',
+        lg('none', 'Not started') + '<b>NOT STARTED</b>: white, #555 text, grey border, \u25cb (the previous stage is not finished yet).',
+        lg('err', 'Blocked') + '<b>ERROR</b>: vermillion #d55e00, white bold text, \u2716 (Blocked / error / failed). Inline error messages after a click are vermillion and start with \u2716.',
+        'Crop captions on segmentation pages: <span style="color:#0b4f8a;font-weight:700">locked</span> (blue) or <span style="color:#7a4a00;font-weight:700">pending</span> (brown). '
+        'Buttons: \U0001F512 Approve (blue outline), \u2702 Recut with latest algorithm (blue dashed), \u2713 confirm reading (small blue outline).'])))
     h.append(sec('6. Versions and live counts', ul([
         'Segmentation algorithm versions in <code>ALGORITHM_VERSION.md</code>: ' + (', '.join(f'<code>{e(x)}</code>' for x in heads) or '–'),
         f'Combined manifest: {nman} crop lines (crop_status – {cnt(man)}); algorithm_version: {cnt(algo)}; lines without it: {nman - sum(algo.values())}.',
