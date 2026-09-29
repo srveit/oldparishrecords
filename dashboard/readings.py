@@ -186,6 +186,12 @@ def plan_md(md, tok, new, ctx):
     for i in reversed(hs): out = out[:i] + new + out[i + len(tok):]
     return out, {'context': ctx, 'before': tok, 'after': new, 'count': len(hs)}
 
+# Stage B auto-refresh from Stage A is OFF (Stephen, 29 Sep 2026): Stage B will later be refreshed from the Expansion output
+# (stageA_expanded), not from Stage A. Picks, edits and the re-apply pass only LIST the Stage B drafts that contain the token
+# (stage_b_review). Keep plan_b/stageb_files as the hook; set True only when Chief enables a source for it.
+STAGEB_AUTOREFRESH = False
+STAGEB_REFRESH_SOURCE = 'stageA_expanded'   # future source of Stage B refreshes (not wired)
+
 def stageb_files(stageb, code, entry_id, stagea_path):
     out = []; base = re.sub(r'_[LR](_e\d+)$', r'\1', entry_id)
     for p in sorted(glob.glob(os.path.join(stageb, code, '*.json'))):
@@ -324,6 +330,11 @@ def change(C, code, row_status, kind, entry_id, field, token, occurrence, ctx, v
                 if token not in json.dumps(bj, ensure_ascii=False): continue
                 if locked_b(bj): b_locked.append(bp); continue
                 nb, bch = plan_b(bj, token, value, cb)
+                if not STAGEB_AUTOREFRESH:        # review list only: which draft contains the token, and what a refresh would touch
+                    b_review.append({'file': bp, 'token': token, 'fields': ['.'.join(map(str, q)) for q, _, _ in bch] or
+                                     (word_hits(bj, token) if not has_marker(token) else ['.'.join(map(str, k)) for k, v in walk(bj) if token in v]),
+                                     'not_updated': 'Stage B auto-refresh from Stage A is off'})
+                    continue
                 if bch: b_upd.append((bp, nb, bch))
                 rest = word_hits(nb, token) if not has_marker(token) else [k for k, v in walk(nb) if token in v]
                 if rest: b_review.append({'file': bp, 'token': token, 'fields': rest})
@@ -445,7 +456,7 @@ def reapply_all(W, dash, codes, log=print):
                 else: hit = unl and isinstance(v, str) and locate_lax(v, tok, c.get('occurrence'), cb) is not None
             mdp = md_path(stagea, code) if c.get('field') != 'md' else ''
             mhit = bool(mdp) and os.path.isfile(mdp) and bool(md_hits(open(mdp, encoding='utf-8').read(), tok, c.get('context_before', '')))
-            bh = [bp for bp, bj in stageb_files(stageb, code, c['entry_id'], fp) if not locked_b(bj) and tok in json.dumps(bj, ensure_ascii=False) and plan_b(bj, tok, c['new'], cb)[1]] if c.get('field') != 'md' else []
+            bh = [] if not STAGEB_AUTOREFRESH else [bp for bp, bj in stageb_files(stageb, code, c['entry_id'], fp) if not locked_b(bj) and tok in json.dumps(bj, ensure_ascii=False) and plan_b(bj, tok, c['new'], cb)[1]] if c.get('field') != 'md' else []
             if hit or mhit or bh: todo.append((code, sadir, c, fp, mdp))
     if not todo: return fixed
     try: lf = lock(os.path.join(entries, '.manifest.lock'), timeout=3)
@@ -471,7 +482,7 @@ def reapply_all(W, dash, codes, log=print):
             if mdp and os.path.isfile(mdp):
                 md_new, _ = plan_md(open(mdp, encoding='utf-8').read(), tok, new, cb)
             bplans = []
-            if c.get('field') != 'md':
+            if c.get('field') != 'md' and STAGEB_AUTOREFRESH:
                 for bp, bj in stageb_files(stageb, code, c['entry_id'], fp):
                     if locked_b(bj) or tok not in json.dumps(bj, ensure_ascii=False): continue
                     nb, bch = plan_b(bj, tok, new, cb)
@@ -491,6 +502,8 @@ def reapply_all(W, dash, codes, log=print):
             notify(queue, {'time': stamp, 'kind': 'reading_change_reapplied', 'action': 'reading_reapply', 'code': code, 'entry_id': c['entry_id'],
                            'change_type': c['type'], 'change_id': c.get('change_id'), 'token_before': tok, 'token_after': new,
                            'stage_a_file': fp if plan_a else None, 'md_file': mdp if md_new is not None else None, 'stage_b_files': res['stage_b'],
+                           'stage_b_review': [bp for bp, bj in (stageb_files(stageb, code, c['entry_id'], fp) if c.get('field') != 'md' else [])
+                                              if tok in json.dumps(bj, ensure_ascii=False) or new in json.dumps(bj, ensure_ascii=False)],
                            'backup_dir': bdir, 'for': ['Chief', 'Entry Transcriber', 'Record Extractor'],
                            'note': "Stephen's recorded reading was re-applied because a rewrite brought the old token back"})
             fixed.append(res)

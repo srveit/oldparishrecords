@@ -6,7 +6,7 @@ Locks every crop of a Draft or Recut row (Queued for redo / Redoing / Approved a
 
 Listens on 127.0.0.1 only; published to the tailnet (never Funnel) via
   tailscale serve --http=80 --set-path=/api/approve http://127.0.0.1:8081/api/approve
-Config via env (used for scratch testing): OPR_ENTRIES, OPR_DASH, OPR_STAGEA, OPR_STAGEB, OPR_RUN_STATUS (1/0), OPR_PORT.
+Config via env (used for scratch testing): OPR_ENTRIES, OPR_DASH, OPR_STAGEA, OPR_STAGEA_EXP, OPR_STAGEB, OPR_RUN_STATUS (1/0), OPR_PORT.
 
 Actions (JSON body {"code": ..., "action": ...}; action defaults to "segmentation", unchanged behaviour):
   segmentation   lock crops in both manifests (above).
@@ -30,8 +30,17 @@ EXTRACTION_APPROVE_ENABLED = True          # Stephen 2026-09-29: extraction Appr
 NOTIFY_QUEUE = os.path.join(DASH, 'notify_queue.jsonl')
 BACKUPS = os.environ.get('OPR_BACKUPS', os.path.join(os.path.dirname(STAGEA), '_approve_backups'))
 LOCKED_VALUES = {'locked', 'approved', 'final'}
+STAGEA_EXP = os.environ.get('OPR_STAGEA_EXP', os.path.join(os.path.dirname(STAGEA), 'stageA_expanded'))   # Entry Expander output
+EXPANSION_APPROVE_ENABLED = True
 
 STAGEA_ALIASES = {'W-S0036': 'Warstein_S0036'}     # same mapping as status.py _sa(): row code -> town-prefixed Stage A folder
+def _ea(code):
+    """stageA_expanded/<folder>: same alias as Stage A (status.py _exp_dir), else the code itself."""
+    a = os.path.join(STAGEA_EXP, os.path.basename(_sa(code)))
+    if os.path.isdir(a): return a
+    b = os.path.join(STAGEA_EXP, code)
+    return b if os.path.isdir(b) else a
+
 def _sa(code):
     d = os.path.join(STAGEA, str(code))
     if os.path.isdir(d): return d
@@ -317,8 +326,12 @@ def stage_approve(code, action, client):
     cur = str(row.get(action, {}).get('status', ''))
     if not cur.lower().startswith('draft'):
         raise Reject(f'{code}: {action} is {cur!r}; only Draft rows can be approved; nothing changed', 409)
+    ent = action in ('transcription', 'expansion')           # per-entry files: already-locked entries are skipped, content must stay identical
+    what = {'transcription': 'Stage A', 'expansion': 'expansion'}.get(action, 'Stage B')
     if action == 'transcription':
         d = _sa(code); pat = '*.diplomatic.json'; skey = 'status'
+    elif action == 'expansion':
+        d = _ea(code); pat = '*.expanded.json'; skey = 'status'
     else:
         d = os.path.join(STAGEB, code); pat = '*.json'; skey = 'stage_b_status'
     lf = open(LOCKFILE, 'a+'); t0 = time.time()
@@ -329,7 +342,12 @@ def stage_approve(code, action, client):
             time.sleep(0.2)
     try:
         files = sorted(p for p in glob.glob(os.path.join(d, pat)) if os.path.isfile(p) and '.bak' not in os.path.basename(p))
-        if not files: raise Reject(f'{code}: no {"Stage A" if action == "transcription" else "Stage B"} files in {d}; nothing changed', 409)
+        if not files: raise Reject(f'{code}: no {what} files in {d}; nothing changed', 409)
+        if action == 'expansion':              # every Stage A entry must have its expansion, plus the summary .md
+            need = {os.path.basename(p)[:-len('.diplomatic.json')] for p in glob.glob(os.path.join(_sa(code), '*.diplomatic.json'))}
+            miss = sorted(need - {os.path.basename(p)[:-len('.expanded.json')] for p in files})
+            if miss: raise Reject(f'{code}: expansion incomplete ({len(miss)} Stage A entries have no .expanded.json); nothing changed', 409)
+            if not glob.glob(os.path.join(d, '*_expanded.md')): raise Reject(f'{code}: no _expanded.md summary yet; nothing changed', 409)
         if action == 'transcription':          # every manifest entry (non-blank) must have its Stage A file
             man = {}
             for l in open(os.path.join(ENTRIES, 'manifest.jsonl'), encoding='utf-8'):
@@ -346,27 +364,28 @@ def stage_approve(code, action, client):
             except ValueError: raise Reject(f'{code}: {os.path.basename(p)} is not valid JSON; nothing changed', 409)
             if not isinstance(j, dict) or skey not in j: raise Reject(f'{code}: {os.path.basename(p)} has no top-level {skey!r}; nothing changed', 409)
             if str(j[skey]).lower() in LOCKED_VALUES:
-                if action == 'transcription': continue          # entries approved one by one stay as they are
+                if ent: continue                                # entries approved one by one stay as they are
                 nl = sum(1 for q in files if str(json.load(open(q, encoding='utf-8')).get(skey, '')).lower() in LOCKED_VALUES)
                 raise Reject(f'{code}: {nl} of {len(files)} files already locked ({skey}); nothing changed', 409)
             before[p] = (raw, (st.st_mtime_ns, st.st_size))
         if not before: raise Reject(f'{code}: every entry is already locked; nothing changed', 409)
         files = sorted(before)
         stamp_t = now_ct(); stamp = f'Stephen dashboard Approve {stamp_t}'
-        if action == 'transcription': upd, anchor = {'status': 'locked', 'locked_by': stamp}, 'status'
+        if ent: upd, anchor = {'status': 'locked', 'locked_by': stamp}, 'status'
         else: upd, anchor = {'stage_b_status': 'locked', 'stage_b_locked_at': stamp_t, 'stage_b_locked_by': stamp}, 'stage_b_locked_at'
         new = {}
         for p, (raw, _) in before.items():
             a = anchor if anchor in json.loads(raw) else skey
             new[p] = set_toplevel(raw, upd, a)
-            if action == 'transcription':      # diplomatic content must stay identical
+            if ent:                            # diplomatic / expanded content must stay identical
                 oj, nj = json.loads(raw), json.loads(new[p])
                 for k in oj:
                     if k not in upd and oj[k] != nj[k]: raise Reject(f'internal check failed on {k}; nothing changed', 500)
         for p, (_, sig) in before.items():
             st = os.stat(p)
             if (st.st_mtime_ns, st.st_size) != sig: raise Reject(f'{os.path.basename(p)} changed during the approval; nothing changed - try again', 503)
-        ts = datetime.datetime.now().strftime('%Y%m%d-%H%M%S'); bdir = os.path.join(BACKUPS, action, f'{code}_{ts}')   # outside stageA/stageB so no glob ever sees the copies
+        ts = datetime.datetime.now().strftime('%Y%m%d-%H%M%S'); act = 'approve_expansion' if action == 'expansion' else action
+        bdir = os.path.join(BACKUPS, act, f'{code}_{ts}')   # outside stageA/stageB so no glob ever sees the copies
         os.makedirs(bdir, exist_ok=False)
         for p in files: shutil.copy2(p, os.path.join(bdir, os.path.basename(p)))
         for p in files: atomic_write(p, new[p])
@@ -375,9 +394,13 @@ def stage_approve(code, action, client):
             if oj != nj: raise Reject(f'post-write verification failed on {os.path.basename(p)}; backups in {bdir}', 500)
         n = len(files)
         with open(os.path.join(ENTRIES, '_approvals.log'), 'a') as f:
-            f.write(f'{stamp_t}\taction={action}\trow {row.get("id")}\t{code}\t{n} {"Stage A" if action == "transcription" else "Stage B"} files locked\tlocked_by={stamp}\tclient={client}\n')
-        evt = {'time': stamp_t, 'action': action, 'row': row.get('id'), 'code': code, 'image_id': img, 'files': n,
-               'locked_by': stamp, 'id': f'{action}-{code}-{ts}'}
+            f.write(f'{stamp_t}\taction={act}\trow {row.get("id")}\t{code}\t{n} {what} files locked\tlocked_by={stamp}\tclient={client}\n')
+        evt = {'time': stamp_t, 'action': act, 'row': row.get('id'), 'code': code, 'image_id': img, 'files': n,
+               'locked_by': stamp, 'id': f'{act}-{code}-{ts}'}
+        if action == 'expansion':
+            rec = next((x for x in json.load(open(os.path.join(DASH, 'records.json'), encoding='utf-8'))['records'] if x['code'] == code), {})
+            evt.update({'kind': 'expansion_approved', 'book': rec.get('book'), 'page': rec.get('page'), 'source_dir': d,
+                        'total_entries': len(glob.glob(os.path.join(d, pat)))})
         notify(evt)
         st = ''; now_status = None
         if RUN_STATUS:
@@ -385,7 +408,7 @@ def stage_approve(code, action, client):
             st = 'status.py ok' if pr.returncode == 0 else f'status.py failed: {pr.stderr[-300:]}'
             try: now_status = dashboard_rows()[code][0][action]['status']
             except Exception: pass
-        return {'ok': True, 'action': action, 'code': code, 'row': row.get('id'), 'files': n, 'locked_by': stamp,
+        return {'ok': True, 'action': act, 'code': code, 'row': row.get('id'), 'files': n, 'locked_by': stamp,
                 'backup_dir': bdir, 'notify': evt['id'], 'status': st, 'dashboard_status': now_status}
     finally:
         fcntl.flock(lf, fcntl.LOCK_UN); lf.close()
@@ -578,6 +601,51 @@ def _feedback_add(code, entry_id, token, occurrence, stamp_t):
     items.append({'token': token, 'occurrence': occurrence, 'state': 'pending', 'updated_at': stamp_t})
     fb[entry_id] = {'state': 'pending', 'items': items, 'updated_at': stamp_t}
     _atomic_json(fp, fb)
+
+def approve_expansion_entry(code, entry_id, client):
+    """Lock one <entry_id>.expanded.json (status locked); the last one flips the row to Approved like the row button."""
+    row, img = _row_meta(code)
+    cur = str(row.get('expansion', {}).get('status', ''))
+    if not cur.lower().startswith('draft'): raise Reject(f'{code}: expansion is {cur!r}; per-entry approval needs a Draft row; nothing changed', 409)
+    if not re.fullmatch(r'[A-Za-z0-9_.\-]+', entry_id or ''): raise Reject('bad entry_id', 400)
+    d = _ea(code); p = os.path.join(d, entry_id + '.expanded.json')
+    if not os.path.isfile(p): raise Reject(f'{code}: no expansion file for {entry_id}; nothing changed', 409)
+    lf = _lock()
+    try:
+        raw = open(p, 'rb').read(); j = json.loads(raw)
+        if not isinstance(j, dict) or 'status' not in j: raise Reject(f'{entry_id}.expanded.json has no top-level status; nothing changed', 409)
+        if str(j.get('status', '')).lower() in LOCKED_VALUES: raise Reject(f'{entry_id} expansion is already locked; nothing changed', 409)
+        stamp_t = now_ct(); stamp = f'Stephen dashboard Approve {stamp_t}'
+        upd = {'status': 'locked', 'locked_by': stamp, 'locked_at': stamp_t}
+        new = set_toplevel(raw, upd, 'status')
+        bdir = _backup('approve_expansion_entry', code, [p])
+        atomic_write(p, new)
+        nj = json.load(open(p, encoding='utf-8')); j.update(upd)
+        if nj != j: raise Reject(f'post-write verification failed; backup in {bdir}', 500)
+        rec = next((x for x in json.load(open(os.path.join(DASH, 'records.json'), encoding='utf-8'))['records'] if x['code'] == code), {})
+        files = sorted(q for q in glob.glob(os.path.join(d, '*.expanded.json')) if '.bak' not in os.path.basename(q))
+        nl = sum(1 for q in files if str(json.load(open(q, encoding='utf-8')).get('status', '')).lower() in LOCKED_VALUES)
+        with open(os.path.join(ENTRIES, '_approvals.log'), 'a') as f:
+            f.write(f'{stamp_t}\taction=approve_expansion_entry\trow {row.get("id")}\t{code}\t{entry_id}\tlocked_by={stamp}\tclient={client}\n')
+        notify({'time': stamp_t, 'kind': 'expansion_entry_approved', 'action': 'approve_expansion_entry', 'row': row.get('id'),
+                'code': code, 'book': rec.get('book'), 'page': rec.get('page'), 'image_id': img, 'entry_id': entry_id,
+                'locked_entries': nl, 'total_entries': len(files), 'locked_by': stamp, 'source_file': p})
+        flipped = nl == len(files)
+        if flipped:                               # last entry -> row Approved exactly like the row button
+            with open(os.path.join(ENTRIES, '_approvals.log'), 'a') as f:
+                f.write(f'{stamp_t}\taction=approve_expansion\trow {row.get("id")}\t{code}\t{len(files)} expansion files locked (auto-flip after per-entry approvals)\tlocked_by={stamp}\tclient={client}\n')
+            notify({'time': stamp_t, 'kind': 'expansion_approved', 'action': 'approve_expansion', 'row': row.get('id'), 'code': code,
+                    'book': rec.get('book'), 'page': rec.get('page'), 'image_id': img, 'files': len(files), 'total_entries': len(files),
+                    'source_dir': d, 'locked_by': stamp, 'auto_flip': True, 'via': 'per-entry approvals',
+                    'id': f'approve_expansion-{code}-{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}'})
+        st = ''
+        if RUN_STATUS:
+            pr = subprocess.run(['python3', 'status.py'], cwd=DASH, capture_output=True, text=True, timeout=120)
+            st = 'status.py ok' if pr.returncode == 0 else f'status.py failed: {pr.stderr[-300:]}'
+        return {'ok': True, 'action': 'approve_expansion_entry', 'code': code, 'entry_id': entry_id, 'locked_by': stamp,
+                'locked_entries': nl, 'total_entries': len(files), 'row_approved': flipped, 'backup_dir': bdir, 'status': st}
+    finally:
+        _unlock(lf)
 
 def approve_transcription_entry(code, entry_id, client):
     row, img = _row_meta(code)
@@ -797,9 +865,11 @@ class H(http.server.BaseHTTPRequestHandler):
             n = int(s.headers.get('Content-Length', 0)); body = json.loads(s.rfile.read(min(n, 20000)) or b'{}')
             code = str(body['code']).strip(); action = str(body.get('action') or 'segmentation').strip()
         except Exception: return s.reply(400, {'ok': False, 'error': 'bad request: JSON body {"code": ...} required'}, origin)
-        if action not in ('segmentation', 'transcription', 'extraction', 'recut', 'approve_transcription_entry', 'confirm_reading', 'selftest', 'segmentation_correction', 'choose_reading', 'edit_reading', 'undo_reading'):
+        if action not in ('segmentation', 'transcription', 'extraction', 'recut', 'approve_transcription_entry', 'confirm_reading', 'selftest', 'segmentation_correction', 'choose_reading', 'edit_reading', 'undo_reading',
+                          'approve_expansion', 'approve_expansion_entry'):
             return s.reply(400, {'ok': False, 'error': f'unknown action {action!r}'}, origin)
-        if (action == 'transcription' and not TRANSCRIPTION_APPROVE_ENABLED) or (action == 'extraction' and not EXTRACTION_APPROVE_ENABLED):
+        if (action == 'transcription' and not TRANSCRIPTION_APPROVE_ENABLED) or (action == 'extraction' and not EXTRACTION_APPROVE_ENABLED) \
+                or (action.startswith('approve_expansion') and not EXPANSION_APPROVE_ENABLED):
             return s.reply(403, {'ok': False, 'error': f'{action} approval is disabled on this server'}, origin)
         try:
             with tlock:
@@ -820,6 +890,8 @@ class H(http.server.BaseHTTPRequestHandler):
                                          str(body.get('field') or 'diplomatic_text'), str(body.get('token') or ''), occ,
                                          body.get('context') if isinstance(body.get('context'), str) else None,
                                          body.get('value') if isinstance(body.get('value'), str) else None, pk, s.client())
+                elif action == 'approve_expansion': res = stage_approve(code, 'expansion', s.client())
+                elif action == 'approve_expansion_entry': res = approve_expansion_entry(code, str(body.get('entry_id') or ''), s.client())
                 elif action == 'undo_reading': res = undo_reading(code, str(body.get('change_id') or ''), s.client())
                 else: res = stage_approve(code, action, s.client())
             s.reply(200, res, origin)

@@ -87,13 +87,81 @@ def trans(code, img, man):
     return f'In progress ({len(have & need)}/{tot} entries)', ('' if md else 'no summary .md yet') + (f'; {len(wfiles)} files in _work' if wfiles else '')
 
 EXPANSION_HELP = 'Transcription with abbreviations and omitted letters written out'
-def expan(code):
-    """Expansion stage (between Transcription and Record Extraction). STUB HOOK: there is no source yet, so every row is Not started
-    (no link). Later: read stageA_expanded/<folder>/ (like _sa(code) for stageA), derive Queued / In progress (d/N) / Draft / Approved,
-    write out/expansion/<code>.html and set the cell's 'link' there. Returns (status, detail) like seg/trans/extr."""
-    d = os.path.join(W, 'stageA_expanded', os.path.basename(_sa(code)))
-    if not os.path.isdir(d): return NS, ''
-    return NS, 'stageA_expanded folder found; expansion status not wired yet'
+EXPANSION_PRODUCER = True       # the Entry Expander exists (Stephen, 29 Sep 2026); False = column always Not started
+WAIT_EXP = 'Waiting on Expansion'
+EXP_OVR = {'queued': 'Queued', 'inprogress': 'In progress', 'in progress': 'In progress', 'in-progress': 'In progress'}
+
+def _exp_dir(code):
+    """stageA_expanded/<folder>: same folder alias as Stage A (e.g. Warstein rows), else the code itself."""
+    base = os.path.join(W, 'stageA_expanded'); a = os.path.join(base, os.path.basename(_sa(code)))
+    if os.path.isdir(a): return a
+    b = os.path.join(base, code)
+    return b if os.path.isdir(b) else a
+
+def _exp_files(code):
+    return sorted(p for p in glob.glob(os.path.join(_exp_dir(code), '*.expanded.json')) if os.path.isfile(p) and '.bak' not in os.path.basename(p))
+
+def _exp_md(code):
+    d = _exp_dir(code)
+    for n in (f'{code}_expanded.md', f'{os.path.basename(d)}_expanded.md'):
+        if os.path.isfile(os.path.join(d, n)): return os.path.join(d, n)
+    m = sorted(p for p in glob.glob(os.path.join(d, '*_expanded.md')) if '.bak' not in os.path.basename(p))
+    return m[0] if m else None
+
+def _exp_load(p):
+    """Defensive reader for one <entry_id>.expanded.json -> dict(entry_id, status, text, margin, diplomatic, crop, notes, ok)."""
+    eid = os.path.basename(p)[:-len('.expanded.json')]
+    try: j = json.load(open(p, encoding='utf-8'))
+    except Exception as ex: return {'entry_id': eid, 'status': '', 'text': f'(unreadable: {ex})', 'ok': False}
+    if not isinstance(j, dict): j = {'expanded_text': j if isinstance(j, str) else json.dumps(j, ensure_ascii=False)}
+    def first(*ks):
+        for k in ks:
+            v = j.get(k)
+            if isinstance(v, str) and v.strip(): return v
+            if isinstance(v, list) and v and all(isinstance(x, str) for x in v): return '\n'.join(v)
+        return ''
+    crop = j.get('crop_path') or j.get('crop_paths') or ''
+    return {'entry_id': str(j.get('entry_id') or eid), 'file_id': eid, 'status': str(j.get('status', '')).lower(),
+            'text': first('expanded_text', 'expanded', 'expansion', 'text', 'expanded_diplomatic'),
+            'margin': first('expanded_margin', 'margin_expanded'),
+            'diplomatic': first('diplomatic_text', 'source_text'), 'crop': crop,
+            'notes': first('notes', 'note', 'expansion_notes'), 'ok': True}
+
+def _exp_state(code):
+    """File-derived Expansion state or None (no entry files yet). N = Stage A entries (diplomatic JSON files)."""
+    fs = _exp_files(code)
+    if not fs: return None
+    need = {os.path.basename(p)[:-len('.diplomatic.json')] for p in glob.glob(os.path.join(_sa(code), '*.diplomatic.json'))}
+    have = {os.path.basename(p)[:-len('.expanded.json')] for p in fs}
+    n = len(need) or len(have); d = len(have & need) if need else len(have)
+    md = _exp_md(code)
+    if d < n: return f'In progress ({d}/{n} entries)', 'Entry Expander output arriving'
+    if not md: return f'In progress ({d}/{n} entries)', 'all entries; no summary _expanded.md yet'
+    sts = [_exp_load(p)['status'] for p in fs]
+    nl = sum(x in _LOCKED for x in sts)
+    if nl == len(sts): return 'Approved', f'{nl} entries locked'
+    return 'Draft', f'{nl}/{len(sts)} entries locked' if nl else f'{len(sts)} entries'
+
+def expansion_output(code):
+    """The Record Extraction gate: True once Expansion has output = Draft or Approved (all entries + the _expanded.md)."""
+    s = _exp_state(code)
+    return bool(s) and s[0] in ('Draft', 'Approved')
+
+def expan(code, trans_status, ovr=None):
+    """Expansion stage (between Transcription and Record Extraction). Rules (Stephen, 29 Sep 2026):
+    - it may begin only after the row's transcription is Approved: anything else -> Not started (never Queued/In progress),
+      an overrides.json 'expansion' value is ignored then;
+    - transcription Approved: Queued (no output yet) -> In progress (d/N entries: some .expanded.json, or all without the .md)
+      -> Draft (all entries + .md, not all locked) -> Approved (all locked);
+    - overrides.json 'expansion' (setexp.py: Queued / In progress[ (d/N entries)]) applies only while no .expanded.json exists.
+    Returns (status, detail, source)."""
+    if not str(trans_status).lower().startswith('approved'): return NS, 'starts after the transcription is Approved', 'rule'
+    if not EXPANSION_PRODUCER: return NS, 'transcription approved; no Expansion producer yet', 'rule'
+    s = _exp_state(code)
+    if s and s[0] in ('Draft', 'Approved'): return s[0], s[1], 'files'
+    if s: return s[0], s[1], 'files'            # entry files are more precise than a reported stage
+    if ovr: return str(ovr), 'reported by the Entry Expander (setexp.py)', 'override'
+    return 'Queued', 'waiting for the Entry Expander', 'files'
 
 def extr(code, img):
     hits = []
@@ -161,7 +229,7 @@ NOCACHE = ('<meta name="robots" content="noindex,nofollow">'   # hidden page (al
 MOBILE_CSS = ".rtype{display:inline-block;padding:0 7px;border:1.5px solid #222;border-radius:3px;background:#fff;color:#222;font-size:13px;font-weight:600;line-height:1.5;white-space:nowrap;vertical-align:1px}.rtype .rti::before{content:\"\\25a4\\00a0\"}.rtype .de{font-weight:400;color:#444}.rtype.unk{border-style:dotted;color:#444;font-style:italic}body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}a.full{display:block;cursor:zoom-in}.hdr a.hl{color:#0b4f8a;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.hdr a.hl:focus,.hdr a.hl:focus-visible{outline:3px solid #0b4f8a;outline-offset:2px;border-radius:3px;background:#e8f1fa}.stktog{display:none}@media (max-width:700px),(pointer:coarse) and (max-height:500px){body{margin:10px 12px}h1{font-size:19px}p,li,summary,label,textarea,input,select,.corrpanel{font-size:16px}.stk{margin:0 -12px 12px;padding:6px 12px;--stkpt:6px}.stk .rtype .de,.stk .rtype .rti{display:none}.stk .rtype{font-size:12px;padding:0 4px;letter-spacing:-.1px}.hdr a.back{font-size:0;text-decoration:none}.hdr a.back::before{content:\"\\2190\";font-size:20px;line-height:1;padding:0 12px 0 2px}.stk .hdr{font-size:14px;line-height:1.45;padding:6px 10px}.apvbox{max-width:none;margin:0 0 4px 8px}html:not(.stkopen) .stk .stail,html:not(.stkopen) .stk .l2,html:not(.stkopen) .stk .draftban,html:not(.stkopen) .stk #tg,html:not(.stkopen) .stk .stagenote,html:not(.stkopen) .stk #oprupd{display:none}.stktog{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;padding:0 10px;border:1px solid #888;border-radius:6px;background:#fff;color:#222;font-size:14px;vertical-align:middle;cursor:pointer}.stktog::after{content:\"more \\25be\"}html.stkopen .stktog::after{content:\"less \\25b4\"}pre{font-size:15px}pre.stagea-text{font-size:18px}.entact{float:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}}@media (pointer:coarse){.apv,.rcb,.entapv,.corrbtn,.corrpanel button,#tg,.stktog{min-height:44px;min-width:44px;box-sizing:border-box}.entapv,.fbchip,.entok{margin-left:0}.ck{min-width:44px;min-height:44px;font-size:16px;vertical-align:middle;margin:2px 4px}.corrpanel label{display:flex;align-items:center;min-height:44px;margin:0;white-space:normal}.corrpanel input[type=checkbox]{width:24px;height:24px;margin:0 10px 0 0;flex:0 0 auto}details>summary{min-height:44px;padding-top:10px;padding-bottom:10px;box-sizing:border-box}body>p>a,.hdr a{display:inline-block;padding:10px 0}.hdr a.hl{display:inline;padding:14px;margin:0 -14px}#oprlogout{padding:13px 14px!important;font-size:15px!important}body{padding-bottom:calc(56px + env(safe-area-inset-bottom))}}body{margin-top:0}.stk{position:-webkit-sticky;position:sticky;top:0;margin-top:0}.hdr a.back{white-space:nowrap}@media (pointer:coarse) and (max-height:500px){.stk{max-height:50vh;max-height:50dvh;overflow-y:auto;-webkit-overflow-scrolling:touch}html:not(.stkopen) .stk .kd{display:none}html:not(.stkopen) .stktog::after{content:\"\\25be\"}html:not(.stkopen) .stktog{padding:0 6px}}.stk{padding-top:calc(var(--stkpt,8px) + env(safe-area-inset-top,0px))}"
 MOBILE_JS = "(function(){if(window.oprStk)return;window.oprStk=1;var H=document.documentElement;try{if(sessionStorage.getItem('oprStk')==='1')H.classList.add('stkopen');}catch(e){}document.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest?ev.target.closest('.stktog'):null;if(!t)return;H.classList.toggle('stkopen');var o=H.classList.contains('stkopen');t.setAttribute('aria-expanded',o?'true':'false');try{sessionStorage.setItem('oprStk',o?'1':'');}catch(e){}var st=document.getElementById('stk');if(st)H.style.setProperty('--stkh',st.offsetHeight+'px');});})();"
 CHIP_CSS = ".k-done,.k-need,.k-proc,.k-wait,.k-err,.k-none{white-space:nowrap}.k-done{background:#e8f1fa!important;color:#0b4f8a!important;border:1px solid #0072b2!important;font-weight:600!important}.k-need{background:#e69f00!important;color:#000!important;border:2px solid #000!important;font-weight:800!important}.k-proc,.k-wait{background:#eeeeee!important;color:#333!important;border:1px dashed #888!important;font-weight:600!important}.k-wait{border-color:#333!important}.k-err{background:#d55e00!important;color:#fff!important;border:2px solid #000!important;font-weight:800!important}.k-none{background:#fff!important;color:#555!important;border:1px solid #bbb!important;font-weight:600!important}.k-done::before{content:\"\\2713\\00a0\"}.k-need::before{content:\"\\26a0\\fe0e\\00a0\"}.k-proc::before{content:\"\\23f3\\00a0\"}.k-wait::before{content:\"\\23f3!\\00a0\"}.k-err::before{content:\"\\2716\\00a0\"}.k-none::before{content:\"\\25cb\\00a0\"}.lgc,.qbadge{display:inline-block;padding:1px 9px;border-radius:12px;font-size:12px;margin:0 4px 2px 0;vertical-align:1px}.qbadge{background:#e69f00;color:#000;border:2px solid #000;font-weight:800;margin-left:8px;cursor:help}@media (prefers-reduced-motion:no-preference){.k-need{animation:oprpulse 2.6s ease-in-out infinite}}@keyframes oprpulse{0%,100%{box-shadow:0 0 0 0 rgba(230,159,0,0)}50%{box-shadow:0 0 0 4px rgba(230,159,0,.45)}}.oprerr{color:#d55e00;font-weight:700}"
-CHIP_JS = "(function(){if(window.oprKind)return; var KS=['k-done','k-need','k-proc','k-wait','k-err','k-none'],SEL='.chip,.segchip,.fbchip,.entok,.corrpend,.corrsent'; function K(t){t=String(t||'').replace(/^[\\s\\u2713\\u26a0\\ufe0e\\u23f3\\u2716\\u25cb!]+/,'').toLowerCase();if(!t)return ''; if(/^(blocked|error|failed|not sent|not done|not approved)/.test(t))return 'err'; if(/^(queued for redo|correction (pending|sent)|recut|draft)/.test(t))return 'need'; if(/^waiting on transcriber/.test(t))return 'wait'; if(/hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving/.test(t))return 'proc'; if(/^(approved|locked|updated|done|complete)/.test(t))return 'done'; if(/^not started/.test(t))return 'none';return '';} function apply(){[].forEach.call(document.querySelectorAll(SEL),function(el){var k=K(el.textContent),c=k?'k-'+k:''; KS.forEach(function(x){if(x!==c&&el.classList.contains(x))el.classList.remove(x);});if(c&&!el.classList.contains(c))el.classList.add(c);}); [].forEach.call(document.querySelectorAll('details.ent'),function(d){var a=d.querySelector('summary .entact');if(!a)return; var n=d.querySelectorAll('.tq:not(.confirmed) .qm').length,b=a.querySelector('.qbadge'); if(n){if(!b){b=document.createElement('span');b.className='qbadge';b.title='Unconfirmed readings [?] in this entry (tap \\u2713 next to each to confirm)';a.insertBefore(b,a.firstChild);} var t='[?] '+n;if(b.textContent!==t)b.textContent=t;}else if(b)b.remove();});} window.oprKind=K;window.oprKindApply=apply;var q=0; function sch(){if(q)return;q=1;setTimeout(function(){q=0;apply();},0);} function start(){apply();new MutationObserver(sch).observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});} if(document.body)start();else document.addEventListener('DOMContentLoaded',start);})();"
+CHIP_JS = "(function(){if(window.oprKind)return; var KS=['k-done','k-need','k-proc','k-wait','k-err','k-none'],SEL='.chip,.segchip,.fbchip,.entok,.corrpend,.corrsent'; function K(t){t=String(t||'').replace(/^[\\s\\u2713\\u26a0\\ufe0e\\u23f3\\u2716\\u25cb!]+/,'').toLowerCase();if(!t)return ''; if(/^(blocked|error|failed|not sent|not done|not approved)/.test(t))return 'err'; if(/^(queued for redo|correction (pending|sent)|recut|draft)/.test(t))return 'need'; if(/^waiting on transcriber/.test(t))return 'wait'; if(/^waiting on expansion/.test(t))return 'proc'; if(/hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving/.test(t))return 'proc'; if(/^(approved|locked|updated|done|complete)/.test(t))return 'done'; if(/^not started/.test(t))return 'none';return '';} function apply(){[].forEach.call(document.querySelectorAll(SEL),function(el){var k=K(el.textContent),c=k?'k-'+k:''; KS.forEach(function(x){if(x!==c&&el.classList.contains(x))el.classList.remove(x);});if(c&&!el.classList.contains(c))el.classList.add(c);}); [].forEach.call(document.querySelectorAll('details.ent'),function(d){var a=d.querySelector('summary .entact');if(!a)return; var n=d.querySelectorAll('.tq:not(.confirmed) .qm').length,b=a.querySelector('.qbadge'); if(n){if(!b){b=document.createElement('span');b.className='qbadge';b.title='Unconfirmed readings [?] in this entry (tap \\u2713 next to each to confirm)';a.insertBefore(b,a.firstChild);} var t='[?] '+n;if(b.textContent!==t)b.textContent=t;}else if(b)b.remove();});} window.oprKind=K;window.oprKindApply=apply;var q=0; function sch(){if(q)return;q=1;setTimeout(function(){q=0;apply();},0);} function start(){apply();new MutationObserver(sch).observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});} if(document.body)start();else document.addEventListener('DOMContentLoaded',start);})();"
 def _kind(st):
     t = re.sub(r'^[\s\u2713\u26a0\ufe0e\u23f3\u2716\u25cb!]+', '', str(st or '')).lower()
     if not t: return ''
@@ -493,7 +561,7 @@ function oprUndo(b){var z=b.closest('.chz');oprPost(b,{code:__CODE__,action:'und
   if(LT.el===p.el&&now-LT.t<400){ev.preventDefault();LT={t:0,el:null};open(p.el);return;}LT={t:now,el:p.el};},{passive:false});
  document.addEventListener('touchcancel',function(){if(TP){clearTimeout(TP.tm);TP.el.classList.remove('pressing');TP=null;}},{passive:true});
  document.addEventListener('contextmenu',function(ev){if(tokEl(ev.target)&&window.matchMedia&&matchMedia('(pointer:coarse)').matches)ev.preventDefault();});})();
-function oprEntryApprove(ev,b){ev.preventDefault();ev.stopPropagation();oprPost(b,{code:__CODE__,action:'approve_transcription_entry',entry_id:b.dataset.e},'Approving\u2026',
+function oprEntryApprove(ev,b){ev.preventDefault();ev.stopPropagation();oprPost(b,{code:__CODE__,action:(b.dataset.a||'approve_transcription_entry'),entry_id:b.dataset.e},'Approving\u2026',
  function(j){var c=document.createElement('span');c.className='entok';c.textContent='Approved'+(String(j.locked_by||'').match(/T(\d\d:\d\d)/)?' '+j.locked_by.match(/T(\d\d:\d\d)/)[1]:'');
   b.replaceWith(c);if(j.row_approved){var ch=document.querySelector('#stk .chip.segchip');if(ch){ch.style.cssText='';ch.textContent='Approved';}}},
  oprErr(b));}
@@ -589,6 +657,103 @@ def write_transcription_pages(rows, man=None):
     os.chmod(tmp, 0o644); os.replace(tmp, os.path.join(td, 'list.txt'))   # file list pulled by Greyhawk refresh.sh
     return made
 
+# ---- Expansion pages: out/expansion/<code>.html (Draft/Approved rows): crop, Stage A diplomatic text | expanded text ----
+EXPANSION_APPROVE_ENABLED = True
+_SUPRE = _re.compile(r'\[([^\[\]\n]+)\]')
+EXP_CSS = ('.xgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}'
+           '.xgrid>div{min-width:0}.xgrid h3{margin:6px 0 4px}'
+           '@media (max-width:699px){.xgrid{grid-template-columns:1fr}}'
+           'span.sup{background:#e8f1fa;color:#0b4f8a;border-bottom:2px solid #0b4f8a;border-radius:3px;padding:0 1px}'
+           '.xkey{display:inline-block;margin:4px 0 10px;font-size:14px}')
+
+def _exp_hl(text, E):
+    """Escape the expanded text; supplied [letters/words] get the Okabe-Ito blue 'supplied' style (background + underline,
+    so not colour-only). Whole-line section labels ([margin_date]) and [?...] uncertainty markers are left plain."""
+    out, cur = [], 0
+    for m in _SUPRE.finditer(text):
+        inner = m.group(1); ls = text.rfind('\n', 0, m.start()) + 1; le = text.find('\n', m.end()); le = len(text) if le < 0 else le
+        if inner.startswith('?') or text[ls:le].strip() == m.group(0) or ('_' in inner and _re.fullmatch(r'[a-z_]+', inner)): continue
+        out.append(E(text[cur:m.start()])); out.append(f'<span class="sup" title="supplied by the Expander">[{E(inner)}]</span>'); cur = m.end()
+    out.append(E(text[cur:])); return ''.join(out)
+
+def write_expansion_pages(rows):
+    td = os.path.join(OUT, 'expansion'); os.makedirs(td, exist_ok=True); made = []; bundles = []
+    E = lambda t: _html.escape(str(t if t is not None else ''), quote=True)
+    for r in rows:
+        st = str(r['expansion']['status']); sl = st.lower()
+        if not (sl.startswith('approved') or sl.startswith('draft')): continue
+        c = r['code']; r['expansion']['link'] = f'expansion/{c}.html'; draft = sl.startswith('draft')
+        xs = {}
+        for p in _exp_files(c):
+            x = _exp_load(p); xs[x['file_id']] = x
+        ents = {k: ('locked' if x['status'] in _LOCKED else 'soft') for k, x in xs.items()}
+        r['expansion']['entries'] = ents; nl = sum(v == 'locked' for v in ents.values())
+        if draft and ents: r['expansion']['progress'] = f'{nl}/{len(ents)}'
+        sa = _stagea_parts(c); scr = _stagea_crops(c); pub = _PUB.get(c, {}); used = set(); secs = []
+        for n in sorted(set(sa) | {_enum(k) for k in xs}):
+            en = f'e{n}' if n < 10**6 else 'e?'
+            parts = sa.get(n) or []
+            eids = [eid for _, _, eid, _, _ in parts] or sorted(k for k in xs if _enum(k) == n)
+            acts = ''
+            for eid in eids:
+                x = xs.get(eid)
+                if not x: acts += f'<span class="miss" title="{E(eid)}">no expansion yet</span>'; continue
+                side = (' ' + _etag(eid).split('_')[0]) if len(eids) > 1 else ''
+                if x['status'] in _LOCKED: acts += f'<span class="entok" title="{E(eid)}">Approved{E(side)}</span>'
+                elif draft and EXPANSION_APPROVE_ENABLED:
+                    acts += (f'<button class="entapv" data-e="{E(eid)}" data-a="approve_expansion_entry" onclick="oprEntryApprove(event,this)" '
+                             f'title="Approve only this entry\u2019s expansion ({E(eid)}); locks it immediately">Approve entry{E(side)}</button>')
+            lab = ', '.join(x[1] for x in parts if x[1])
+            summ = f'<b>{E(en)}</b>' + (f' <span class="fn">({E(lab)})</span>' if lab else '') + f'<span class="entact">{acts}</span>'
+            figs = ''
+            for src in sorted(scr.get(n, []), key=lambda q: (0 if '_L_' in os.path.basename(q) else 1 if '_R_' in os.path.basename(q) else 0, q)):
+                hit = pub.get(os.path.abspath(src)) or pub.get(os.path.splitext(os.path.basename(src))[0])
+                figs += (f'<figure class="crop"><img src="../segmentation/{E(hit[0])}?v={hit[1]}" alt="{E(os.path.basename(src))}" loading="lazy">'
+                         f'<figcaption class="fn">{E(os.path.basename(hit[0]))}</figcaption></figure>' if hit else
+                         f'<p class="miss">crop not found: {E(os.path.basename(src))}</p>')
+            if not scr.get(n): figs = '<p class="miss">crop not found (no crop referenced by Stage A)</p>'
+            body = figs
+            for eid in eids:
+                x = xs.get(eid) or {}; used.add(eid)
+                p0 = next((q for q in parts if q[2] == eid), None)
+                dip = '\n\n'.join(t for _, t in p0[4]) if p0 else (x.get('diplomatic') or '(no Stage A text)')
+                exp = x.get('text') or ('(no expanded text in the file)' if x else '(no expansion for this entry yet)')
+                if x.get('margin'): exp += '\n\n' + x['margin']
+                tag = f' <span class="fn">{E(_etag(eid))}</span>' if len(eids) > 1 else ''
+                body += (f'<div class="xgrid"><div><h3>Diplomatic (Stage A){tag}</h3><pre class="transcription stagea-text">{E(dip)}</pre></div>'
+                         f'<div><h3>Expanded{tag}</h3><pre class="transcription">{_exp_hl(exp, E)}</pre>'
+                         + (f'<div class="src">{E(x["notes"])}</div>' if x.get('notes') else '') + '</div></div>')
+            secs.append(f'<details class="ent" id="{E(en)}"><summary>{summ}</summary><div class="body">{body}</div></details>\n')
+        banner = ('<div class="draftban" style="background:#e69f00;border:2px solid #000;border-radius:8px;padding:10px 14px;margin:0 0 14px;'
+                  'font-weight:800;font-size:16px;color:#000">\u26a0\ufe0e DRAFT \u2013 this expansion is not yet approved (needs your Approve).</div>\n' if draft else '')
+        spouse = (' &times; ' + E(r['spouse'])) if r.get('spouse') else ''
+        md = _exp_md(c)
+        page = ('<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">' + NOCACHE + '<script>' + CHIP_JS + '</script>\n'
+            f'<title>Row {E(r["id"])} {E(c)} \u2013 expansion</title><style>{PAGE_CSS}{CHIP_CSS}{DETAILS_CSS}{EXP_CSS}figure.crop{{margin:8px 0}}figure.crop img{{max-width:100%;height:auto;display:block;border:1px solid #ddd}}</style></head><body>\n'
+            '<p><a href="../index.html">&larr; Dashboard</a></p>\n'
+            f'<h1>Row {E(r["id"])}: {E(r["name"])} <span class="fn">({E(c)})</span> \u2013 Expansion</h1>\n'
+            + _sticky(r, 'Expansion', st, E,
+                btn=('' if not (EXPANSION_APPROVE_ENABLED and draft and ents and nl < len(ents)) else
+                     ' ' + _approve_btn(r, 'approve_expansion') + (f'<div class="src">{nl} of {len(ents)} entries already approved; the row button locks the remaining {len(ents) - nl}</div>' if nl else '')),
+                line2=(f'<b>Date</b> {E(r.get("date"))}{spouse and " &nbsp; <b>Spouse</b> " + E(r["spouse"])} &nbsp; '
+                       f'<b>Image</b> {_img_link(r, E)} &nbsp; <a href="{E(r["url"])}" target="_blank" rel="noopener">Matricula page</a>'),
+                below=banner + TOGGLE_JS) +
+            f'<h2>Diplomatic and expanded text ({len(secs)} entries)</h2>\n'
+            '<div class="xkey">Key: <span class="sup">[supplied]</span> = letters or words written out by the Expander (not on the page).</div>\n'
+            + ''.join(secs) +
+            f'<p class="src">Source: stageA_expanded/{E(os.path.basename(_exp_dir(c)))}/ ({len(xs)} entry files{", " + E(os.path.basename(md)) if md else ""}).</p>\n'
+            f'<p class="src">Generated {E(datetime.datetime.now().astimezone().isoformat(timespec="seconds"))} by status.py</p>\n'
+            + '<script>' + ROW_JS.replace('__URL__', _api_js()).replace('__CODE__', _J(c)) + '</script>\n'
+            + OPEN_JS + '</body></html>\n')
+        made.append(_write_page(td, c, page, 'expansion', r)); bundles.append(f'{c}.bundle.js')
+    for p in glob.glob(os.path.join(td, '*.html')):          # drop pages for rows no longer Approved/Draft
+        if os.path.basename(p) not in made: os.remove(p)
+    _drop_stale_bundles(td, bundles)
+    fd, tmp = tempfile.mkstemp(dir=td); os.write(fd, ''.join(m + '\n' for m in made + bundles).encode()); os.close(fd)
+    os.chmod(tmp, 0o644); os.replace(tmp, os.path.join(td, 'list.txt'))
+    return made
+
 _PUB = {}   # code -> {abs source path | source stem: ('<code>/<file>.jpg', source mtime)}, filled by write_segmentation_pages
 
 def _stagea_crops(code):
@@ -656,7 +821,7 @@ def _approve_btn(r, action, msg=None):
     No confirm/alert. Disabled on first click (double-click guard; server 409 is the backstop). Success: the button becomes a
     blue \u2713 'Approved - N <unit> locked at HH:MM CT' chip and the header chip turns Approved, in place (no reload; the live
     poller then swaps in the regenerated page). Errors are shown inline and the button is re-enabled."""
-    unit = {'segmentation': 'crops', 'transcription': 'entries', 'extraction': 'records', 'recut': ''}[action]
+    unit = {'segmentation': 'crops', 'transcription': 'entries', 'approve_expansion': 'entries', 'extraction': 'records', 'recut': ''}[action]
     if action == 'recut':
         label, busy, cls, title = '&#9986; Recut with latest algorithm', 'Requesting recut\u2026', 'rcb', 'Queues this row for a re-cut immediately (no confirmation)'
     else:
@@ -1019,15 +1184,17 @@ def main():
         c, img = r['code'], r['image_id']; o = ov.get(c, {}) if isinstance(ov.get(c), dict) else {}
         cells = {}
         for k, fn in (('segmentation', lambda: seg(img, man)), ('transcription', lambda: trans(c, img, man)),
-                      ('expansion', lambda: expan(c)), ('extraction', lambda: extr(c, img))):
-            v, why = fn(); src = 'files'
+                      ('expansion', lambda: expan(c, cells['transcription']['status'], o.get('expansion'))), ('extraction', lambda: extr(c, img))):
+            v, why, *sx = fn(); src = sx[0] if sx else 'files'
             if v is None: v, why, src = r.get('baseline', {}).get(k, NS), '', 'baseline'
-            if k in o: v, why, src = o[k], o.get('note', ''), 'override'
+            if k in o and k != 'expansion': v, why, src = o[k], o.get('note', ''), 'override'   # expansion override handled (gated) in expan()
+            if k == 'extraction' and src != 'files' and not expansion_output(c):
+                v, why, src = WAIT_EXP, 'Record Extraction starts once this row\u2019s Expansion has output', 'rule'   # existing Stage B drafts are 'files' and stay as they are
             cells[k] = {'status': v, 'detail': why, 'source': src}
         rows.append({**{k: r[k] for k in ('id', 'group', 'name', 'spouse', 'date', 'type', 'book', 'image', 'page', 'code')},
                      'town': r.get('town') or towns.get(r['book'], ''), 'record_type': record_type(r),
                      **mlink(r), **cells})
-    os.makedirs(OUT, exist_ok=True); write_extraction_pages(rows); write_segmentation_pages(rows, man); write_transcription_pages(rows, man)   # also set .link on linked chips
+    os.makedirs(OUT, exist_ok=True); write_extraction_pages(rows); write_segmentation_pages(rows, man); write_transcription_pages(rows, man); write_expansion_pages(rows)   # also set .link on linked chips
     now = datetime.datetime.now().astimezone()
     data = {'generated_at': now.isoformat(timespec='seconds'), 'generated_epoch': int(now.timestamp()),
             'groups': recs['groups'], 'rows': rows}
@@ -1132,6 +1299,10 @@ def build_meta(rows, now):
          'Log line + queue line <code>action: transcription</code>. Next: extraction by the Record Extractor <i>(unverified in code)</i>.'),
         ('Transcription Approve (per entry)', 'Locks one entry file; backup in <code>_approve_backups/approve_transcription_entry/</code>, mirror in <code>stageA/&lt;code&gt;/_entry_approvals.json</code>. '
          'Queue <code>kind: transcription_entry_approved</code>. When the last entry is locked the row flips to Approved automatically (extra row line with <code>auto_flip: true</code>).'),
+        ('Expansion Approve (row)', 'Sets <code>status: locked</code> + <code>locked_by</code> on the remaining <code>stageA_expanded/&lt;folder&gt;/*.expanded.json</code> files (row must be Draft: every Stage A entry has its file, plus the <code>_expanded.md</code>); '
+         'backup in <code>_approve_backups/approve_expansion/</code>; log line <code>action=approve_expansion</code>; queue line <code>kind: expansion_approved</code>. Expanded text is never changed.'),
+        ('Expansion Approve (per entry)', 'Locks one <code>.expanded.json</code> (<code>status/locked_by/locked_at</code>); backup in <code>_approve_backups/approve_expansion_entry/</code>; queue <code>kind: expansion_entry_approved</code>; '
+         'the last entry flips the row to Approved (extra <code>expansion_approved</code> line with <code>auto_flip: true</code>).'),
         ('Extraction Approve', 'Locks the row\u2019s Stage B records (<code>stage_b_status</code>); backup in <code>_approve_backups/extraction/</code>; log + queue line <code>action: extraction</code>.'),
         ('Recut with latest algorithm', 'Only for Approved rows with no redo stage. Sets <code>segmentation: Queued for redo</code> in <code>overrides.json</code> (backup <code>.bakN</code>) and, if a transcription exists, '
          'puts it <b>On hold until crops approved</b>. Log + queue line <code>action: recut</code>. Never touches manifests or Stage A/B. Next: the Entry Segmenter re-cuts '
@@ -1149,14 +1320,14 @@ def build_meta(rows, now):
          '20 characters before it; if the Stage A text no longer has that exact token there the server answers 409 and writes nothing. Writes the picked spelling into '
          'the Stage A diplomatic JSON (the shown field, plus every other field where the marked token occurs once) and the summary <code>&lt;code&gt;_stageA.md</code> '
          'under <code>entries/.manifest.lock</code>, backup in <code>_approve_backups/choose_reading/</code>, record <code>type: choice</code> in '
-         '<code>_confirmed_readings.json</code>, log line, queue <code>kind: choose_reading</code>. Unlocked Stage B drafts of the entry get the same replacement; '
-         'locked Stage B is never touched (listed in the event).'),
+         '<code>_confirmed_readings.json</code>, log line, queue <code>kind: choose_reading</code>. Stage B is NOT refreshed from Stage A any more (Stephen, 29 Sep): '
+         'the event lists the Stage B drafts that contain the token (<code>stage_b_review</code>); later Stage B will be refreshed from the Expansion output.'),
         ('Edit reading', 'Double-click a word (desktop), or double-tap / long-press it (iPhone), to edit that one word inline; Enter or leaving the box saves, Esc or '
          'Cancel cancels; empty or multi-word values are refused inline. Same path, checks and storage as Choose reading (action <code>edit_reading</code>, '
          'record <code>type: edit</code> with old \u2192 new, backup <code>_approve_backups/edit_reading/</code>, queue <code>kind: reading_edited</code> so the '
          'Entry Transcriber can add a curated line to <code>stageA/_learned_readings.jsonl</code>). An edit that removes a <code>[?]</code> counts as confirmed.'),
-        ('Durability', 'Every status.py run re-applies active choices and edits if a rewrite brought the old token back (Stage A JSON unless locked, the .md, unlocked '
-         'Stage B), backup <code>_approve_backups/reading_reapply/</code>, log <code>action=reading_reapply</code>, queue <code>reading_change_reapplied</code>.'),
+        ('Durability', 'Every status.py run re-applies active choices and edits if a rewrite brought the old token back (Stage A JSON unless locked, and the .md; '
+         'never Stage B), backup <code>_approve_backups/reading_reapply/</code>, log <code>action=reading_reapply</code>, queue <code>reading_change_reapplied</code>.'),
         ('Locked entries', 'Approved/locked Stage A entries are read-only for choices and edits: no buttons or edit affordance (alternatives show \u201centry approved '
          '\u2014 locked\u201d) and the server answers 409. The \u2713 confirm keeps its existing behaviour.'),
         ('Undo (choice or edit)', 'Restores the old token in the Stage A JSON and .md, reverts only the Stage B draft values the change wrote, marks the record '
@@ -1170,7 +1341,13 @@ def build_meta(rows, now):
     h.append(sec('5. Status words and chips (colour-blind safe)', '<p class="mnote">Okabe-Ito colours; every state also has its own symbol and border, so colour is never the only cue '
         '(checked in greyscale and a deuteranopia simulation). The chip class follows the chip <i>text</i>, so it changes in place when a poll or a click changes the state. '
         'Legend at the top of the Pipeline tab. Pipeline status columns: Segmentation \u2192 Transcription \u2192 <b>Expansion</b> (' + EXPANSION_HELP.lower() +
-        '; not wired yet, every row ' + lg('none', 'Not started') + ', no link) \u2192 Record Extraction.</p>' + ul([
+        '; producer: the Entry Expander, output in <code>stageA_expanded/&lt;folder&gt;/</code> (<code>&lt;entry_id&gt;.expanded.json</code> + <code>&lt;code&gt;_expanded.md</code>). '
+        'It may start only after the row\u2019s transcription is Approved: before that ' + lg('none', 'Not started') + ' (never Queued/In progress, and an <code>overrides.json</code> <code>expansion</code> value is ignored). Then '
+        + lg('proc', 'Queued') + ' (no output yet) \u2192 ' + lg('proc', 'In progress (d/N entries)') + ' (some entry files, or all without the .md) \u2192 ' + lg('need', 'Draft') +
+        ' (all entries + .md, not all locked; links to <code>expansion/&lt;code&gt;.html</code> with Approve) \u2192 ' + lg('done', 'Approved') + ' (every entry <code>status: locked</code>). '
+        'Stages reported by the Expander are applied with <code>setexp.py CODE queued|inprogress[:D/N]|clear</code> (used only while no entry file exists; files decide after that)) '
+        '\u2192 Record Extraction (shows ' + lg('proc', 'Waiting on Expansion') + ' until that row\u2019s Expansion is Draft or Approved; rows that already have Stage B drafts or '
+        'approved records keep their Draft/Approved chip, link and Approve button).</p>' + ul([
         lg('need', 'Needs you') + '<b>NEEDS STEPHEN</b> (most prominent): solid amber #e69f00, black bold text, 2px black border, \u26a0; gentle pulse unless the device asks for reduced motion. '
         'States: ' + lg('need', 'Queued for redo') + lg('need', 'Recut') + lg('need', 'Draft 2/5') + lg('need', 'Correction pending: \u2026') +
         ' (Queued for redo is on this list at Stephen\u2019s request, although the Entry Segmenter acts next). Also: the per-entry <b>Approve entry</b> buttons on unapproved entries, '
@@ -1192,7 +1369,7 @@ def build_meta(rows, now):
         f'Stage A entry files: {na} ({cnt(sa)}).',
         f'Stage B records with a schema: {nb} ({cnt(sb)}).',
         f'Rows: {len(rows)}. Segmentation \u2013 {cnt(st["segmentation"])}.',
-        f'Transcription \u2013 {cnt(st["transcription"])}.', f'Expansion \u2013 {cnt(st["expansion"])} (stub: no source yet).', f'Extraction \u2013 {cnt(st["extraction"])}.',
+        f'Transcription \u2013 {cnt(st["transcription"])}.', f'Expansion \u2013 {cnt(st["expansion"])}.', f'Extraction \u2013 {cnt(st["extraction"])}.',
         f'notify_queue.jsonl: {q if q is not None else "–"} lines; _approvals.log: {lg if lg is not None else "–"} lines.',
         f'Last refresh: {e(now.isoformat(timespec="seconds"))}.'])))
     h.append(sec('7. Backups and undo', ul([
