@@ -231,6 +231,11 @@ def legacy_edit(x):
             'token': old, 'new': new, 'occurrence': x.get('occurrence'), 'context_before': cb, 'context_after': x.get('context_after', ''),
             'time': x.get('time', ''), 'by': x.get('by', ''), 'author': 'Stephen', 'confirms_reading': has_marker(old) and not has_marker(new)}
 
+def legacy_field_ok(obj, field):
+    """A legacy record's field is usable if it is a top-level text field, or a column name (e.g. 'testes' = columns.testes, as Chief
+    confirmed for the H0167 chat edit). plan_legacy then covers the column, diplomatic_text/_margin and the .md, all context-anchored."""
+    return isinstance(obj.get(field), str) or (isinstance(obj.get('columns'), dict) and isinstance(obj['columns'].get(field), str))
+
 def is_legacy_record(x): return isinstance(x, dict) and not x.get('type') and 'before' in x
 
 def active_changes(sadir):
@@ -434,7 +439,7 @@ def reapply_all(W, dash, codes, log=print):
                 try: o = json.loads(txt)
                 except Exception: continue
                 v = o.get(c['field'])
-                if c.get('legacy') and not isinstance(v, str): continue       # field not a top-level text field: ambiguous, leave alone
+                if c.get('legacy') and not legacy_field_ok(o, c['field']): continue   # unknown field: ambiguous, leave alone
                 unl = str(o.get('status', '')).lower() not in LOCKED_VALUES
                 if c.get('legacy'): hit = unl and bool(plan_legacy(o, c['field'], tok, c['new'], cb)[1])
                 else: hit = unl and isinstance(v, str) and locate_lax(v, tok, c.get('occurrence'), cb) is not None

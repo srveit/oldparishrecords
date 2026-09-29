@@ -86,6 +86,15 @@ def trans(code, img, man):
         return 'Draft', f'{len(have & need)}/{len(need)} entries'
     return f'In progress ({len(have & need)}/{tot} entries)', ('' if md else 'no summary .md yet') + (f'; {len(wfiles)} files in _work' if wfiles else '')
 
+EXPANSION_HELP = 'Transcription with abbreviations and omitted letters written out'
+def expan(code):
+    """Expansion stage (between Transcription and Record Extraction). STUB HOOK: there is no source yet, so every row is Not started
+    (no link). Later: read stageA_expanded/<folder>/ (like _sa(code) for stageA), derive Queued / In progress (d/N) / Draft / Approved,
+    write out/expansion/<code>.html and set the cell's 'link' there. Returns (status, detail) like seg/trans/extr."""
+    d = os.path.join(W, 'stageA_expanded', os.path.basename(_sa(code)))
+    if not os.path.isdir(d): return NS, ''
+    return NS, 'stageA_expanded folder found; expansion status not wired yet'
+
 def extr(code, img):
     hits = []
     for base in (f'{W}/records', f'{W}/stageB'):
@@ -334,7 +343,8 @@ def _render_tokens(text, eid, field, conf, E, regained, locked=False):
     # ✓ confirm records only: legacy direct-edit records ('before' field, e.g. by voice) are NOT confirms of their token
     mine = [x for x in conf if not x.get('type') and not RD.is_legacy_record(x) and x.get('entry_id') == eid and x.get('field', 'diplomatic_text') == field]
     chs = [x for x in conf if x.get('type') in ('choice', 'edit') and not x.get('undone') and x.get('entry_id') == eid and x.get('field', 'diplomatic_text') == field]
-    chs += [l for l in map(RD.legacy_edit, conf) if l and l['entry_id'] == eid and l['field'] == field]
+    chs += [l for l in map(RD.legacy_edit, conf) if l and l['entry_id'] == eid and (l['field'] == field or   # column-named legacy edits
+            (field == 'diplomatic_text' and not l['field'].startswith('diplomatic_')))]                   # show on the main text
     toks = RD.tokens(text); places = []
     def chip(c):
         t = str(c.get('time', ''))[11:16]; verb = 'Chose' if c['type'] == 'choice' else 'Saved'
@@ -1009,7 +1019,7 @@ def main():
         c, img = r['code'], r['image_id']; o = ov.get(c, {}) if isinstance(ov.get(c), dict) else {}
         cells = {}
         for k, fn in (('segmentation', lambda: seg(img, man)), ('transcription', lambda: trans(c, img, man)),
-                      ('extraction', lambda: extr(c, img))):
+                      ('expansion', lambda: expan(c)), ('extraction', lambda: extr(c, img))):
             v, why = fn(); src = 'files'
             if v is None: v, why, src = r.get('baseline', {}).get(k, NS), '', 'baseline'
             if k in o: v, why, src = o[k], o.get('note', ''), 'override'
@@ -1069,7 +1079,7 @@ def build_meta(rows, now):
         try: j = json.load(open(p, encoding='utf-8'))
         except Exception: continue
         na += 1; sa[str(j.get('schema_version') or j.get('schema_id') or '(no schema field)')] += 1
-    st = {k: collections.Counter() for k in ('segmentation', 'transcription', 'extraction')}
+    st = {k: collections.Counter() for k in ('segmentation', 'transcription', 'expansion', 'extraction')}
     for r in rows:
         for k in st: st[k][(r.get(k) or {}).get('status', '?')] += 1
     q = _count_lines(os.path.join(D, 'notify_queue.jsonl')); lg = _count_lines(os.path.join(W, 'entries', '_approvals.log'))
@@ -1159,7 +1169,8 @@ def build_meta(rows, now):
     def lg(k, t): return f'<span class="lgc k-{k}">{e(t)}</span>'
     h.append(sec('5. Status words and chips (colour-blind safe)', '<p class="mnote">Okabe-Ito colours; every state also has its own symbol and border, so colour is never the only cue '
         '(checked in greyscale and a deuteranopia simulation). The chip class follows the chip <i>text</i>, so it changes in place when a poll or a click changes the state. '
-        'Legend at the top of the Pipeline tab.</p>' + ul([
+        'Legend at the top of the Pipeline tab. Pipeline status columns: Segmentation \u2192 Transcription \u2192 <b>Expansion</b> (' + EXPANSION_HELP.lower() +
+        '; not wired yet, every row ' + lg('none', 'Not started') + ', no link) \u2192 Record Extraction.</p>' + ul([
         lg('need', 'Needs you') + '<b>NEEDS STEPHEN</b> (most prominent): solid amber #e69f00, black bold text, 2px black border, \u26a0; gentle pulse unless the device asks for reduced motion. '
         'States: ' + lg('need', 'Queued for redo') + lg('need', 'Recut') + lg('need', 'Draft 2/5') + lg('need', 'Correction pending: \u2026') +
         ' (Queued for redo is on this list at Stephen\u2019s request, although the Entry Segmenter acts next). Also: the per-entry <b>Approve entry</b> buttons on unapproved entries, '
@@ -1181,7 +1192,7 @@ def build_meta(rows, now):
         f'Stage A entry files: {na} ({cnt(sa)}).',
         f'Stage B records with a schema: {nb} ({cnt(sb)}).',
         f'Rows: {len(rows)}. Segmentation \u2013 {cnt(st["segmentation"])}.',
-        f'Transcription \u2013 {cnt(st["transcription"])}.', f'Extraction \u2013 {cnt(st["extraction"])}.',
+        f'Transcription \u2013 {cnt(st["transcription"])}.', f'Expansion \u2013 {cnt(st["expansion"])} (stub: no source yet).', f'Extraction \u2013 {cnt(st["extraction"])}.',
         f'notify_queue.jsonl: {q if q is not None else "–"} lines; _approvals.log: {lg if lg is not None else "–"} lines.',
         f'Last refresh: {e(now.isoformat(timespec="seconds"))}.'])))
     h.append(sec('7. Backups and undo', ul([
