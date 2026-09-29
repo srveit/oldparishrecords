@@ -29,6 +29,7 @@ def mbase(diocese): return f'{MROOT}{diocese or "paderborn"}/'
 MBASE = mbase('paderborn')
 TOWN_COLL = {'horn': ('paderborn', 'DE_EBAP_22212'), 'warstein': ('paderborn', 'DE_EBAP_23815')}   # only towns whose Matricula home is known
 COLL_TOWN = {v[1]: k.capitalize() for k, v in TOWN_COLL.items()}
+EXT_PAGE_IDS = {('lank st. stephanus', 'KB 1000'): 'KB1000'}   # town+book -> page-id prefix in that project (KB1000_s078_p164); same rule as status.py ext_page_id
 DEFAULT_COLL = ''     # other towns without a URL: NO collection and NO links (never guess DE_EBAP_22212)
 LIMITS = {'group': 120, 'name': 200, 'type_other': 80, 'town': 80, 'book': 40, 'image': 20, 'page': 20, 'date': 60, 'spouse': 200,
           'notes': 2000, 'book_url': 400, 'url': 400}
@@ -142,6 +143,9 @@ def derive(rec, recs, auto_url=True, auto_book_url=True):
     town = COLL_TOWN.get(col, '') if col in COLL_TOWN else ''   # image_id prefix only where it is known (Horn/Warstein)
     dig = page_digits(rec.get('image'))
     rec['image_id'] = f"{town}_{rec['book']}_{int(dig):04d}" if (town and rec.get('book') and dig) else ''
+    xp = EXT_PAGE_IDS.get((str(rec.get('town') or '').strip().lower(), str(rec.get('book') or '').strip()))
+    pdig = page_digits(str(rec.get('page') or '').split('\u2013')[0])
+    if xp and dig and pdig: rec['image_id'] = f"{xp}_s{int(dig):03d}_p{int(pdig)}"     # other project's page id (status.py EXT_PROJECTS)
     return rec
 
 def is_added(rec): return bool(rec.get('added_by'))

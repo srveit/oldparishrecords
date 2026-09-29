@@ -171,10 +171,29 @@ def notify(evt):
     with open(NOTIFY_QUEUE, 'a', encoding='utf-8') as f:
         fcntl.flock(f, fcntl.LOCK_EX); f.write(json.dumps(evt, ensure_ascii=False) + '\n'); f.flush(); os.fsync(f.fileno())
 
+# Other projects' crops (status.py EXT_PROJECTS): read-only here. Approve refuses; a correction flag may reference them.
+EXT_MANIFESTS = {('lank st. stephanus', 'KB 1000'): ('Lank KB 1000', '/workspace/lank-kb1000/entries/KB1000/manifest.jsonl')}
+def ext_of(code):
+    try: rec = next((x for x in json.load(open(os.path.join(DASH, 'records.json'), encoding='utf-8'))['records'] if x.get('code') == code), {})
+    except Exception: rec = {}
+    return EXT_MANIFESTS.get((str(rec.get('town') or '').strip().lower(), str(rec.get('book') or '').strip()))
+def ext_entries(code, img):
+    x = ext_of(code); out = []
+    if not (x and img): return out
+    try:
+        for l in open(x[1], encoding='utf-8'):
+            try: j = json.loads(l)
+            except ValueError: continue
+            if str(j.get('entry_id') or '').startswith(img + '_e'): out.append(j)
+    except OSError: pass
+    return out
+
 def approve(code, client):
     rows = dashboard_rows()
     if code not in rows: raise Reject(f'unknown code {code!r}: not a current dashboard row', 404)
     row, img = rows[code]
+    x = ext_of(code)
+    if x: raise Reject(f'{code}: {x[0]} crops live in {os.path.dirname(x[1])}, which the dashboard only reads; approving (locking) them is not supported yet; nothing changed', 409)
     seg = str(row.get('segmentation', {}).get('status', '')); sl = seg.lower()
     if not (sl.startswith('draft') or sl.startswith('recut')):
         raise Reject(f'{code}: segmentation is {seg!r}; only Draft or Recut rows can be approved; nothing changed', 409)
@@ -485,6 +504,8 @@ def segmentation_correction(code, entry_id, issues, note, client):
         if (j.get('image_id') or j.get('scan')) != img: continue
         rowcrops.append(j)
         if j.get('entry_id') == entry_id: ent = j
+    if not rowcrops:                                                       # other project's page (read-only manifest)
+        rowcrops = ext_entries(code, img); ent = next((j for j in rowcrops if j.get('entry_id') == entry_id), None)
     if ent is None: raise Reject(f'{entry_id} is not a crop of {code} in the segmentation manifest; nothing changed', 400)
     op = os.path.join(DASH, 'overrides.json'); cp = os.path.join(CORR_DIR, f'{code}.json')
     lf = _lock()

@@ -15,6 +15,7 @@ def load_manifest():
             except ValueError: continue
             by.setdefault(r.get('image_id') or r.get('scan'), []).append(r)
     except FileNotFoundError: pass
+    for k, v in ext_manifest().items(): by.setdefault(k, []).extend(v)     # other projects' crops (read-only), keyed by page id
     return by
 
 def is_locked(e):
@@ -33,32 +34,45 @@ def seg(img, man):
     return None, ''
 
 # ---- Rows whose files live in ANOTHER project folder (read-only; nothing there is ever written) ----
-# Keyed by (town, book) from records.json; each row maps to its single Page Structure / manifest entry id.
+# Keyed by (town, book) from records.json. The row's image_id is that project's page id ('KB1000_s078_p164' = Page Structure /
+# manifest entry ids minus '_eN'); its manifest entries are merged into load_manifest() under that id, so the segmentation chip,
+# the page (every crop of the page cut, copied + ?v=mtime) and setseg --audit treat them like Horn crops.
 EXT_PROJECTS = {('lank st. stephanus', 'KB 1000'): {
-    'root': '/workspace/lank-kb1000',
-    'manifest': 'entries/KB1000/manifest.jsonl',          # crops (entry_id, crop_image relative to root)
-    'locked': 'entries/KB1000/CROPS_LOCKED.txt',          # '<entry_id> ... locked ...' lines
-    'structure': 'entries/KB1000/structure/*.jsonl',       # Page Structure (Stage 0) per face: structure_id
-    'entries': {'N0023': 'KB1000_s078_p164_e3', 'N0024': 'KB1000_s097_p202_e6'}}}
+    'root': '/workspace/lank-kb1000', 'label': 'Lank KB 1000',
+    'prefix': 'KB1000',                                    # page id = KB1000_s<scan 3 digits>_p<page>
+    'manifest': 'entries/KB1000/manifest.jsonl',          # crops (entry_id, crop_path, crop_status)
+    'qc': 'entries/KB1000/_qc',                            # <page id>_redo_overlay.jpg / _redo_contact.jpg
+    'structure': 'entries/KB1000/structure/*.jsonl',       # Page Structure (Stage 0): structure_id per entry
+    'approve': False,                                      # crops can't be locked from the dashboard (folder is read-only for us)
+    'entries': {'N0023': 'KB1000_s078_p164_e3', 'N0024': 'KB1000_s097_p202_e6'}}}   # the row's own entry on the page (target)
 def ext_project(r):
     return EXT_PROJECTS.get((str(r.get('town') or '').strip().lower(), str(r.get('book') or '').strip()))
-def ext_entry(r):
+def ext_page_id(r):
+    """'KB1000_s078_p164' from the row's image (scan) and page, for any row of an EXT project; '' if either is missing."""
     p = ext_project(r)
-    return (p, p['entries'].get(r.get('code'))) if p else (None, None)
+    if not p: return ''
+    sc = ''.join(ch for ch in str(r.get('image') or '') if ch.isdigit()); pg = ''.join(ch for ch in str(r.get('page') or '').split('\u2013')[0] if ch.isdigit())
+    return f"{p['prefix']}_s{int(sc):03d}_p{int(pg)}" if sc and pg else ''
+def ext_target(r):
+    """The row's own entry id on the page: explicit map, else None (the whole page is shown without a marker)."""
+    p = ext_project(r)
+    return p['entries'].get(r.get('code')) if p else None
+def row_image_id(r):
+    return r.get('image_id') or ext_page_id(r)
 _EXT_CACHE = {}
 def _ext_read(p):
+    """(entries by page id, set of Page Structure ids) for one EXT project, read once per run."""
     if p['root'] in _EXT_CACHE: return _EXT_CACHE[p['root']]
-    man, locked, struct = {}, set(), set()
+    man, struct = {}, set()
     try:
         for l in open(os.path.join(p['root'], p['manifest']), encoding='utf-8'):
             try: j = json.loads(l)
             except ValueError: continue
-            if j.get('entry_id'): man[j['entry_id']] = j
-    except OSError: pass
-    try:
-        for l in open(os.path.join(p['root'], p['locked']), encoding='utf-8'):
-            t = l.split()
-            if t and 'locked' in l.lower(): locked.add(t[0])
+            eid = str(j.get('entry_id') or ''); m = re.fullmatch(r'(.+)_e\d+[a-z]?', eid)
+            if not m: continue
+            j = dict(j, image_id=m.group(1), _ext_root=p['root'])
+            if not j.get('crop_path') and j.get('crop_image'): j['crop_path'] = os.path.join(p['root'], j['crop_image'])
+            man.setdefault(m.group(1), []).append(j)
     except OSError: pass
     for f in glob.glob(os.path.join(p['root'], p['structure'])):
         try:
@@ -67,18 +81,16 @@ def _ext_read(p):
                 except ValueError: continue
                 if sid: struct.add(sid)
         except OSError: pass
-    _EXT_CACHE[p['root']] = (man, locked, struct); return _EXT_CACHE[p['root']]
+    _EXT_CACHE[p['root']] = (man, struct); return _EXT_CACHE[p['root']]
+def ext_manifest():
+    out = {}
+    for p in EXT_PROJECTS.values(): out.update(_ext_read(p)[0])
+    return out
 def ext_seg(r):
-    """Segmentation for a row mapped to another project's entry: crop locked -> Approved; crop -> Draft; Page Structure only
-    -> 'Queued (page layout done)'; else None (not started)."""
-    p, eid = ext_entry(r)
-    if not eid: return None, ''
-    man, locked, struct = _ext_read(p)
-    rel = os.path.relpath(p['root'], '/workspace')
-    if eid in man and os.path.isfile(os.path.join(p['root'], man[eid].get('crop_image') or '')):
-        if eid in locked: return 'Approved', f'1 crop, approved ({eid}, {rel})'
-        return 'Draft', f'1 crop ({eid}, {rel})'
-    if eid in struct: return 'Queued (page layout done)', f'Page Structure done, no crop yet ({eid}, {rel})'
+    """No crops yet for an EXT page: Page Structure done -> 'Queued (page layout done)'; else None (not started)."""
+    p, pid = ext_project(r), ext_page_id(r)
+    if not (p and pid): return None, ''
+    if any(s.startswith(pid + '_e') for s in _ext_read(p)[1]): return 'Queued (page layout done)', f'Page Structure done, no crops yet ({pid}, {p["label"]})'
     return None, ''
 
 def _crops_newer(r, img, man, since):
@@ -86,12 +98,7 @@ def _crops_newer(r, img, man, since):
     so an old cut being redone does not hide the Segmenter's report)."""
     try: t0 = datetime.datetime.fromisoformat(str(since)).timestamp()
     except (TypeError, ValueError): return False
-    p, eid = ext_entry(r)
-    if eid:
-        e = _ext_read(p)[0].get(eid) or {}
-        paths = [os.path.join(p['root'], e.get('crop_image') or '')] if e.get('crop_image') else []
-    else: paths = [e.get('crop_path') or '' for e in man.get(img, [])]
-    return any(os.path.isfile(q) and os.path.getmtime(q) > t0 for q in paths)
+    return any(os.path.isfile(e.get('crop_path') or '') and os.path.getmtime(e['crop_path']) > t0 for e in man.get(img, []))
 
 # Stage A folder per row code. Normally stageA/<code>; some rows live in a town-prefixed folder (W-S0036 -> Warstein_S0036).
 # Explicit aliases first, then a unique '<Town>_<rest>' folder whose town starts with the code's prefix letter. Files are never moved.
@@ -1364,7 +1371,7 @@ def _sticky(r, kind, st, E, btn='', tail='', line2='', below=''):
             + '<button class="stktog" type="button" aria-expanded="false" aria-label="Show or hide the header details"></button>'
             + (f'<span class="l2"><br>\n{line2}</span>' if line2 else '') + f'</div>{below}</div><!--/stk-->\n')
 
-def _seg_header(r, st, n, E, ents=()):
+def _seg_header(r, st, n, E, ents=(), xp=None):
     """Status header for segmentation pages; Draft rows get an Approve button (POST to approve_server.py)."""
     sl = st.lower(); stg = _stage(sl)
     k = _kind(st)
@@ -1377,6 +1384,9 @@ def _seg_header(r, st, n, E, ents=()):
         btn = _lock_note(nbad, n, 'crops', E).replace(' locked;', ' locked or not pending;')
     elif sl.startswith('approved') and not stg and RECUT_ENABLED:
         btn = _approve_btn(r, 'recut')
+    elif (sl.startswith('draft') or stg == 'recut') and xp and not xp.get('approve'):
+        btn = ('<span class="stagenote lank" role="note" style="display:inline-block;padding:4px 10px;border-radius:6px;white-space:normal">\u24d8 Approve is not available yet for '
+               + E(xp['label']) + ' crops: they live in ' + E(xp['root']) + ', which the dashboard only reads. Lock them in the Lank project; this page updates by itself.</span>')
     elif sl.startswith('draft') or stg == 'recut':
         btn = _approve_btn(r, 'segmentation', f"Approve all {n} crops of row {r['id']} ({r['code']})? This locks them in the Entry Segmenter manifests.")
     line2 = (f'<b>Image</b> {_img_link(r, E)} &nbsp; <span class="src">{E(r["segmentation"].get("detail", ""))}</span> &nbsp; '
@@ -1431,7 +1441,9 @@ def write_segmentation_pages(rows, man):
     for r in rows:
         st = str(r['segmentation']['status']); sl = st.lower()
         tq = str(r['transcription']['status']).lower().startswith(('approved', 'draft'))  # transcription page needs the crops
-        img = imgs.get(r['code']); ents = sorted(man.get(img, []), key=_seg_key); stg = _stage(sl)
+        img = imgs.get(r['code']) or r.get('image_id') or ''; ents = sorted(man.get(img, []), key=_seg_key); stg = _stage(sl)
+        xp = EXT_PROJECTS.get((str(r.get('town') or '').strip().lower(), str(r.get('book') or '').strip())) if ents and ents[0].get('_ext_root') else None
+        tgt = (xp['entries'].get(r['code']) if xp else None)
         corr = _corrections(r['code']); r['segmentation']['corrections'] = corr
         # page + link: Approved/Draft/Recut always; Queued for redo/Redoing only when crops exist (old cut / in progress)
         sq = sl.startswith(('approved', 'draft')) or stg == 'recut' or (stg in ('queued for redo', 'redoing') and bool(ents))
@@ -1450,7 +1462,9 @@ def write_segmentation_pages(rows, man):
             except Exception as ex: tag = f'<p class="src">crop unavailable: {E(ex)}</p>'
             col = '#0b4f8a' if cs == 'locked' else '#7a4a00'
             mlab = next((str(e[k]).strip() for k in ('label', 'crop_label', 'segment_label', 'description', 'key_label') if e.get(k) and str(e[k]).strip()), '')
-            blocks.append(f'<figure class="crop"><figcaption><b>Entry {E(lab)}</b> <span class="st" style="color:{col};border-color:{col}">{cs}</span> '
+            mine = bool(tgt) and eid == tgt
+            blocks.append(f'<figure class="crop{" mine" if mine else ""}"' + (' id="target"' if mine else '') + f'><figcaption><b>Entry {E(lab)}</b> <span class="st" style="color:{col};border-color:{col}">{cs}</span> '
+                          + ('<span class="tgt">\u25c6 This row\u2019s entry</span> ' if mine else '') +
                           f'<span class="fn">{E(e.get("entry_kind", ""))}</span>'
                           + (f' <span class="lbl">{E(mlab)}</span>' if mlab else '')
                           + (f'<div class="desc">{E(e.get("notes"))}</div>' if e.get('notes') else '')
@@ -1467,7 +1481,7 @@ def write_segmentation_pages(rows, man):
                     except Exception: pass
         qc = []                                                       # Segmenter QC images (entries/_qc/<image>_redo_*.jpg), linked only
         for kind in ('overlay', 'contact'):
-            q = os.path.join(W, 'entries', '_qc', f'{img}_redo_{kind}.jpg'); fn = f'qc_{kind}.jpg'
+            q = os.path.join(xp['root'], xp['qc'], f'{img}_redo_{kind}.jpg') if xp else os.path.join(W, 'entries', '_qc', f'{img}_redo_{kind}.jpg'); fn = f'qc_{kind}.jpg'
             if not (sq and img and os.path.isfile(q)): continue
             dst = os.path.join(cd, fn)
             if not os.path.isfile(dst) or os.path.getmtime(dst) != os.path.getmtime(q) or os.path.getsize(dst) != os.path.getsize(q):
@@ -1486,10 +1500,14 @@ def write_segmentation_pages(rows, man):
             'figure.crop{margin:0 0 18px;border:1px solid #ddd;border-radius:6px;padding:8px;background:#fafafa}'
             'figure.crop img{max-width:100%;height:auto;display:block;margin-top:6px}'
             '.segchip{display:inline-block;padding:2px 10px;border-radius:12px;font-size:13px;font-weight:700}'
+            'figure.crop.mine{border:3px solid #0072b2;background:#f1f7fc}.tgt{display:inline-block;margin-left:6px;padding:0 8px;border:2px solid #0072b2;border-radius:10px;color:#0b4f8a;font-weight:700;font-size:12px}'
+            '.stagenote.lank{background:#f1f7fc;border:1px dashed #0072b2;color:#1a3d7c}'
             '.st{border:1px solid;border-radius:10px;padding:0 8px;font-size:12px;font-weight:700;margin-left:6px}.lbl{font-weight:600;color:#1a3d7c;margin-left:6px}.desc{color:#555;font-size:12px;margin-top:2px}</style></head><body>\n'
             '<p><a href="../index.html">&larr; Dashboard</a></p>\n'
             f'<h1>Row {E(r["id"])}: {E(r["name"])} <span class="fn">({E(c)})</span> \u2013 Segmentation</h1>\n'
-            + _seg_header(r, st, len(ents), E, ents)
+            + _seg_header(r, st, len(ents), E, ents, xp)
+            + (f'<p class="src">Crops read from {E(xp["label"])} ({E(os.path.join(xp["root"], xp["manifest"]))}, read-only): the whole page cut, {len(ents)} crops'
+               + (f'; this row\u2019s entry is <a href="#target">{E(tgt[len(img):].lstrip("_"))}</a> (\u25c6).' if tgt and any(e.get("entry_id") == tgt for e in ents) else '; this row\u2019s entry on the page is not mapped yet, so all crops are shown unmarked.') + '</p>\n' if xp else '')
             + qc_html
             + (''.join(blocks) or '<p>(no crops in the segmentation manifest)</p>\n') + OPEN_JS +
             f'<p class="src">Generated {E(datetime.datetime.now().astimezone().isoformat(timespec="seconds"))} by status.py; '
@@ -1538,9 +1556,9 @@ def main():
             if b and par and b not in towns: towns[b] = par.split(',')[0].strip()
         except Exception: pass
     for r in recs['records']:
-        c, img = r['code'], r.get('image_id') or ''; o = ov.get(c, {}) if isinstance(ov.get(c), dict) else {}
+        c, img = r['code'], row_image_id(r); o = ov.get(c, {}) if isinstance(ov.get(c), dict) else {}
         cells = {}; added = bool(r.get('added_by')); located = bool(str(r.get('book') or '').strip() and str(r.get('page') or '').strip())
-        for k, fn in (('segmentation', lambda: ext_seg(r) if ext_entry(r)[1] else seg(img, man)), ('transcription', lambda: trans(c, img, man)),
+        for k, fn in (('segmentation', lambda: seg(img, man) if (man.get(img) or not ext_project(r)) else ext_seg(r)), ('transcription', lambda: trans(c, img, man)),
                       ('expansion', lambda: expan(c, cells['transcription']['status'], o.get('expansion'))), ('extraction', lambda: extr(c, img))):
             v, why, *sx = fn(); src = sx[0] if sx else 'files'
             if v is None: v, why, src = r.get('baseline', {}).get(k, NS), '', 'baseline'
@@ -1556,7 +1574,7 @@ def main():
             cells[k] = {'status': v, 'detail': why, 'source': src}
         rows.append({**{k: r[k] for k in ('id', 'group', 'name', 'spouse', 'date', 'type', 'book', 'image', 'page', 'code')},
                      'person_id': r.get('person_id') or '', 'person_kind': r.get('person_kind') or 'person', 'tslot': _tslot(r.get('type')),
-                     'town': r.get('town') or towns.get(r['book'], ''), 'record_type': record_type(r), 'image_id': r.get('image_id') or '',
+                     'town': r.get('town') or towns.get(r['book'], ''), 'record_type': record_type(r), 'image_id': img,
                      **mlink(r), **cells, **(_added_info(r, ov) if added else {})})
     os.makedirs(OUT, exist_ok=True); write_segmentation_pages(rows, man); write_extraction_pages(rows, man); write_transcription_pages(rows, man); write_expansion_pages(rows)   # segmentation first: fills _PUB (crops for extraction title rows); also sets .link on linked chips
     now = datetime.datetime.now().astimezone()

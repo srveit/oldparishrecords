@@ -46,6 +46,12 @@ def next_bak(p):
         if m: n = max(n, int(m.group(1)) + 1)
     return f'{p}.bak{n}'
 
+def _st():
+    """status.py as a module (same EXT_PROJECTS / page-id rules as the dashboard)."""
+    sys.path.insert(0, D); import status
+    return status
+def _img(rec): return _st().row_image_id(rec) if rec else None
+
 def manifest():
     by = {}
     for l in open(os.path.join(W, 'entries', 'manifest.jsonl'), encoding='utf-8'):
@@ -53,6 +59,7 @@ def manifest():
         try: j = json.loads(l)
         except ValueError: continue
         by.setdefault(j.get('image_id') or j.get('scan'), []).append(j)
+    for k, v in _st().ext_manifest().items(): by.setdefault(k, []).extend(v)   # other projects' crops (e.g. Lank KB 1000), read-only
     return by
 
 def verify(code, img, man):
@@ -126,7 +133,7 @@ def main(argv):
     if audit:
         man = manifest(); bad = 0
         for p in sorted(glob.glob(os.path.join(SD, '*.html'))):
-            c = os.path.basename(p)[:-5]; img = recs.get(c, {}).get('image_id')
+            c = os.path.basename(p)[:-5]; img = _img(recs.get(c))
             ok, lines = verify(c, img, man); bad += not ok
             sib = [f'{e.get("entry_id")}: {newer_siblings(e["crop_path"])}' for e in man.get(img, []) if e.get('crop_path') and os.path.isfile(e['crop_path']) and newer_siblings(e['crop_path'])]
             print(f'{c}:'); print('\n'.join(lines))
@@ -176,7 +183,7 @@ def main(argv):
     for c, _ in pairs:
         r = rows[c]; s = r['segmentation']
         print(f'{c} (row {r["id"]}): dashboard segmentation = {s["status"]} ({s.get("detail", "")}); page link: {s.get("link") or "none"}')
-        ok, lines = verify(c, recs[c]['image_id'], man); allok &= ok; print('\n'.join(lines))
+        ok, lines = verify(c, _img(recs[c]), man); allok &= ok; print('\n'.join(lines))
     print('VERIFY:', 'PASS' if allok else 'FAIL')
     if wait: wait_mac([c for c, _ in pairs], t0, wait)
     return 0 if allok else 1
