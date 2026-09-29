@@ -341,7 +341,8 @@ def stage_approve(code, action, client):
             if time.time() - t0 > 15: raise Reject('lock is held by another writer; try again', 503)
             time.sleep(0.2)
     try:
-        files = sorted(p for p in glob.glob(os.path.join(d, pat)) if os.path.isfile(p) and '.bak' not in os.path.basename(p) and not p.endswith('_page_metadata.json'))
+        files = sorted(p for p in glob.glob(os.path.join(d, pat)) if os.path.isfile(p) and '.bak' not in os.path.basename(p)
+                       and not os.path.basename(p).endswith('_page_metadata.json'))     # page metadata is not a record: never counted or locked here
         if not files: raise Reject(f'{code}: no {what} files in {d}; nothing changed', 409)
         if action == 'expansion':              # every Stage A entry must have its expansion, plus the summary .md
             need = {os.path.basename(p)[:-len('.diplomatic.json')] for p in glob.glob(os.path.join(_sa(code), '*.diplomatic.json'))}
@@ -774,6 +775,21 @@ def confirm_reading(code, entry_id, field, token, occurrence, ctx, client):
 import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import readings as RD
+import rowedit as RE      # '＋ Add row': add_row / update_row / delete_row (same code path as updaterow.py / setresearch.py)
+
+ROW_FORM_KEYS = ('name', 'record_type', 'type_other', 'group', 'town', 'book', 'image', 'page', 'date', 'spouse', 'notes', 'book_url', 'url')
+def row_action(action, body, client):
+    ctx = RE.Ctx(os.path.dirname(ENTRIES), DASH)
+    f = {k: body[k] for k in ROW_FORM_KEYS if k in body and isinstance(body[k], (str, int, float))}
+    try:
+        if action == 'add_row': res = RE.add_row(ctx, f, client)
+        elif action == 'update_row': res = RE.update_row(ctx, str(body.get('code') or ''), f, client)
+        else: res = RE.delete_row(ctx, str(body.get('code') or ''), client)
+    except RE.RowError as ex: raise Reject(str(ex), ex.http)
+    if RUN_STATUS:
+        pr = subprocess.run(['python3', 'status.py'], cwd=DASH, capture_output=True, text=True, timeout=120)
+        res['status'] = 'status.py ok' if pr.returncode == 0 else f'status.py failed: {pr.stderr[-300:]}'
+    return res
 
 def _rd_ctx(): return RD.Ctx(STAGEA, STAGEB, ENTRIES, BACKUPS, NOTIFY_QUEUE)
 
@@ -863,10 +879,10 @@ class H(http.server.BaseHTTPRequestHandler):
         if s.headers.get('X-OPR-Approve') != '1': return s.reply(403, {'ok': False, 'error': 'missing X-OPR-Approve header'}, origin)
         try:
             n = int(s.headers.get('Content-Length', 0)); body = json.loads(s.rfile.read(min(n, 20000)) or b'{}')
-            code = str(body['code']).strip(); action = str(body.get('action') or 'segmentation').strip()
+            code = str(body['code'] if 'code' in body else ('' if body.get('action') == 'add_row' else body['code'])).strip(); action = str(body.get('action') or 'segmentation').strip()
         except Exception: return s.reply(400, {'ok': False, 'error': 'bad request: JSON body {"code": ...} required'}, origin)
         if action not in ('segmentation', 'transcription', 'extraction', 'recut', 'approve_transcription_entry', 'confirm_reading', 'selftest', 'segmentation_correction', 'choose_reading', 'edit_reading', 'undo_reading',
-                          'approve_expansion', 'approve_expansion_entry'):
+                          'approve_expansion', 'approve_expansion_entry', 'add_row', 'update_row', 'delete_row'):
             return s.reply(400, {'ok': False, 'error': f'unknown action {action!r}'}, origin)
         if (action == 'transcription' and not TRANSCRIPTION_APPROVE_ENABLED) or (action == 'extraction' and not EXTRACTION_APPROVE_ENABLED) \
                 or (action.startswith('approve_expansion') and not EXPANSION_APPROVE_ENABLED):
@@ -890,6 +906,7 @@ class H(http.server.BaseHTTPRequestHandler):
                                          str(body.get('field') or 'diplomatic_text'), str(body.get('token') or ''), occ,
                                          body.get('context') if isinstance(body.get('context'), str) else None,
                                          body.get('value') if isinstance(body.get('value'), str) else None, pk, s.client())
+                elif action in ('add_row', 'update_row', 'delete_row'): res = row_action(action, body, s.client())
                 elif action == 'approve_expansion': res = stage_approve(code, 'expansion', s.client())
                 elif action == 'approve_expansion_entry': res = approve_expansion_entry(code, str(body.get('entry_id') or ''), s.client())
                 elif action == 'undo_reading': res = undo_reading(code, str(body.get('change_id') or ''), s.client())

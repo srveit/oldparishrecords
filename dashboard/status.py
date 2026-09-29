@@ -21,6 +21,7 @@ def is_locked(e):
     return 'locked' in (str(e.get('crop_status', '')).lower(), str(e.get('status', '')).lower())
 
 def seg(img, man):
+    if not img: return None, ''                               # added row without book/image yet
     ents = man.get(img, [])
     if ents:
         nl = sum(map(is_locked, ents))
@@ -123,6 +124,7 @@ def _exp_load(p):
     crop = j.get('crop_path') or j.get('crop_paths') or ''
     return {'entry_id': str(j.get('entry_id') or eid), 'file_id': eid, 'status': str(j.get('status', '')).lower(),
             'text': first('expanded_text', 'expanded', 'expansion', 'text', 'expanded_diplomatic'),
+            'tr_de': _tr_text(j.get('translation_de')), 'tr_en': _tr_text(j.get('translation_en')),
             'margin': first('expanded_margin', 'margin_expanded'),
             'diplomatic': first('diplomatic_text', 'source_text'), 'crop': crop,
             'notes': first('notes', 'note', 'expansion_notes'), 'ok': True}
@@ -164,13 +166,13 @@ def expan(code, trans_status, ovr=None):
     return 'Queued', 'waiting for the Entry Expander', 'files'
 
 def extr(code, img):
-    hits = []
+    hits = []                                                # img '' (added row without image) matches by code only
     for base in (f'{W}/records', f'{W}/stageB'):
         for p in glob.glob(f'{base}/**/*', recursive=True):
             n = os.path.basename(p)
-            if os.path.isfile(p) and not n.endswith('_page_metadata.json') and (code in n or img in n or img.replace('Horn_', '') in n or f'_{code}_' in n):
+            if os.path.isfile(p) and not _is_meta(p) and '.bak' not in n and (code in n or (img and (img in n or img.replace('Horn_', '') in n)) or f'_{code}_' in n):
                 hits.append(p)
-    if not any(p.endswith('.json') for p in hits): return None, ''   # a summary .md alone (page-metadata-only folder) is not an extraction
+    if not hits: return None, ''
     st = set()
     for p in hits:
         if p.endswith('.json'):
@@ -178,16 +180,28 @@ def extr(code, img):
                 j = json.load(open(p))            # Stage B schema: stage_b_status ('status' in records can be a person's status)
                 st.add(str(j.get('stage_b_status') if 'stage_b_status' in j else j.get('status', '')).lower())
             except Exception: pass
-    if st and st <= {'locked', 'approved', 'final'}: return 'Approved', f'{len(hits)} file(s)'
-    return 'Draft', f'{len(hits)} file(s)'
+    nj = sum(p.endswith('.json') for p in hits); other = len(hits) - nj
+    if not nj: return None, ''     # a summary .md alone (page-metadata-only folder) is not an extraction (Chief hot patch 16:02)
+    nmd = sum(p.endswith('.md') for p in hits)
+    det = f'{nj} record(s)' + (' + summary .md' if nmd == 1 else f' + {nmd} .md' if nmd else '') + (f' + {other - nmd} other file(s)' if other - nmd else '')          # page metadata files are never counted
+    if st and st <= {'locked', 'approved', 'final'}: return 'Approved', det
+    return 'Draft', det
 
 MBASE = 'https://data.matricula-online.eu/de/deutschland/paderborn/'
+def _mbase(r):
+    """Matricula base for the row's diocese (records.json 'diocese'; absent = paderborn, as every original row)."""
+    return MBASE.replace('/paderborn/', f"/{r['diocese']}/") if r.get('diocese') else MBASE
+
 def mlink(r):
-    """Every row gets collection + pg + url. url field wins; else collection+book+pg (pg defaults to printed page digits)."""
-    col = r.get('collection') or 'DE_EBAP_22212'
+    """Every row gets collection + pg + url. url field wins; else collection+book+pg (pg defaults to printed page digits).
+    Added rows ('added_by') never fall back to DE_EBAP_22212: no collection -> no link (other dioceses, e.g. Lank = aachen)."""
+    col = r.get('collection') or ('' if r.get('added_by') else 'DE_EBAP_22212')
     pg = r.get('pg') or (''.join(ch for ch in str(r.get('page', '')).split('\u2013')[-1] if ch.isdigit()) or None)
-    url = r.get('url') or (f"{MBASE}{col}/{r['book']}/" + (f"?pg={pg}" if pg else ''))
-    return {'collection': col, 'pg': pg, 'url': url}
+    url = r.get('url') or ((f"{_mbase(r)}{col}/{r['book']}/" + (f"?pg={pg}" if pg else '')) if (r.get('book') and col) else '')
+    out = {'collection': col, 'pg': pg if (col or r.get('url')) else None, 'url': url}
+    for k in ('diocese', 'book_url'):                      # only present on rows that carry them (original rows unchanged)
+        if r.get(k): out[k] = r[k]
+    return out
 
 # ---- Draft extraction pages: out/extraction/<code>.html for every row whose extraction status is Draft ----
 import html as _html, re as _re
@@ -229,15 +243,15 @@ NOCACHE = ('<meta name="robots" content="noindex,nofollow">'   # hidden page (al
 MOBILE_CSS = ".rtype{display:inline-block;padding:0 7px;border:1.5px solid #222;border-radius:3px;background:#fff;color:#222;font-size:13px;font-weight:600;line-height:1.5;white-space:nowrap;vertical-align:1px}.rtype .rti::before{content:\"\\25a4\\00a0\"}.rtype .de{font-weight:400;color:#444}.rtype.unk{border-style:dotted;color:#444;font-style:italic}body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}a.full{display:block;cursor:zoom-in}.hdr a.hl{color:#0b4f8a;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.hdr a.hl:focus,.hdr a.hl:focus-visible{outline:3px solid #0b4f8a;outline-offset:2px;border-radius:3px;background:#e8f1fa}.stktog{display:none}@media (max-width:700px),(pointer:coarse) and (max-height:500px){body{margin:10px 12px}h1{font-size:19px}p,li,summary,label,textarea,input,select,.corrpanel{font-size:16px}.stk{margin:0 -12px 12px;padding:6px 12px;--stkpt:6px}.stk .rtype .de,.stk .rtype .rti{display:none}.stk .rtype{font-size:12px;padding:0 4px;letter-spacing:-.1px}.hdr a.back{font-size:0;text-decoration:none}.hdr a.back::before{content:\"\\2190\";font-size:20px;line-height:1;padding:0 12px 0 2px}.stk .hdr{font-size:14px;line-height:1.45;padding:6px 10px}.apvbox{max-width:none;margin:0 0 4px 8px}html:not(.stkopen) .stk .stail,html:not(.stkopen) .stk .l2,html:not(.stkopen) .stk .draftban,html:not(.stkopen) .stk #tg,html:not(.stkopen) .stk .stagenote,html:not(.stkopen) .stk #oprupd{display:none}.stktog{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;padding:0 10px;border:1px solid #888;border-radius:6px;background:#fff;color:#222;font-size:14px;vertical-align:middle;cursor:pointer}.stktog::after{content:\"more \\25be\"}html.stkopen .stktog::after{content:\"less \\25b4\"}pre{font-size:15px}pre.stagea-text{font-size:18px}.entact{float:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}}@media (pointer:coarse){.apv,.rcb,.entapv,.corrbtn,.corrpanel button,#tg,.stktog{min-height:44px;min-width:44px;box-sizing:border-box}.entapv,.fbchip,.entok{margin-left:0}.ck{min-width:44px;min-height:44px;font-size:16px;vertical-align:middle;margin:2px 4px}.corrpanel label{display:flex;align-items:center;min-height:44px;margin:0;white-space:normal}.corrpanel input[type=checkbox]{width:24px;height:24px;margin:0 10px 0 0;flex:0 0 auto}details>summary{min-height:44px;padding-top:10px;padding-bottom:10px;box-sizing:border-box}body>p>a,.hdr a{display:inline-block;padding:10px 0}.hdr a.hl{display:inline;padding:14px;margin:0 -14px}#oprlogout{padding:13px 14px!important;font-size:15px!important}body{padding-bottom:calc(56px + env(safe-area-inset-bottom))}}body{margin-top:0}.stk{position:-webkit-sticky;position:sticky;top:0;margin-top:0}.hdr a.back{white-space:nowrap}@media (pointer:coarse) and (max-height:500px){.stk{max-height:50vh;max-height:50dvh;overflow-y:auto;-webkit-overflow-scrolling:touch}html:not(.stkopen) .stk .kd{display:none}html:not(.stkopen) .stktog::after{content:\"\\25be\"}html:not(.stkopen) .stktog{padding:0 6px}}.stk{padding-top:calc(var(--stkpt,8px) + env(safe-area-inset-top,0px))}"
 MOBILE_JS = "(function(){if(window.oprStk)return;window.oprStk=1;var H=document.documentElement;try{if(sessionStorage.getItem('oprStk')==='1')H.classList.add('stkopen');}catch(e){}document.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest?ev.target.closest('.stktog'):null;if(!t)return;H.classList.toggle('stkopen');var o=H.classList.contains('stkopen');t.setAttribute('aria-expanded',o?'true':'false');try{sessionStorage.setItem('oprStk',o?'1':'');}catch(e){}var st=document.getElementById('stk');if(st)H.style.setProperty('--stkh',st.offsetHeight+'px');});})();"
 CHIP_CSS = ".k-done,.k-need,.k-proc,.k-wait,.k-err,.k-none{white-space:nowrap}.k-done{background:#e8f1fa!important;color:#0b4f8a!important;border:1px solid #0072b2!important;font-weight:600!important}.k-need{background:#e69f00!important;color:#000!important;border:2px solid #000!important;font-weight:800!important}.k-proc,.k-wait{background:#eeeeee!important;color:#333!important;border:1px dashed #888!important;font-weight:600!important}.k-wait{border-color:#333!important}.k-err{background:#d55e00!important;color:#fff!important;border:2px solid #000!important;font-weight:800!important}.k-none{background:#fff!important;color:#555!important;border:1px solid #bbb!important;font-weight:600!important}.k-done::before{content:\"\\2713\\00a0\"}.k-need::before{content:\"\\26a0\\fe0e\\00a0\"}.k-proc::before{content:\"\\23f3\\00a0\"}.k-wait::before{content:\"\\23f3!\\00a0\"}.k-err::before{content:\"\\2716\\00a0\"}.k-none::before{content:\"\\25cb\\00a0\"}.lgc,.qbadge{display:inline-block;padding:1px 9px;border-radius:12px;font-size:12px;margin:0 4px 2px 0;vertical-align:1px}.qbadge{background:#e69f00;color:#000;border:2px solid #000;font-weight:800;margin-left:8px;cursor:help}@media (prefers-reduced-motion:no-preference){.k-need{animation:oprpulse 2.6s ease-in-out infinite}}@keyframes oprpulse{0%,100%{box-shadow:0 0 0 0 rgba(230,159,0,0)}50%{box-shadow:0 0 0 4px rgba(230,159,0,.45)}}.oprerr{color:#d55e00;font-weight:700}"
-CHIP_JS = "(function(){if(window.oprKind)return; var KS=['k-done','k-need','k-proc','k-wait','k-err','k-none'],SEL='.chip,.segchip,.fbchip,.entok,.corrpend,.corrsent'; function K(t){t=String(t||'').replace(/^[\\s\\u2713\\u26a0\\ufe0e\\u23f3\\u2716\\u25cb!]+/,'').toLowerCase();if(!t)return ''; if(/^(blocked|error|failed|not sent|not done|not approved)/.test(t))return 'err'; if(/^(queued for redo|correction (pending|sent)|recut|draft)/.test(t))return 'need'; if(/^waiting on transcriber/.test(t))return 'wait'; if(/^waiting on expansion/.test(t))return 'proc'; if(/hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving/.test(t))return 'proc'; if(/^(approved|locked|updated|done|complete)/.test(t))return 'done'; if(/^not started/.test(t))return 'none';return '';} function apply(){[].forEach.call(document.querySelectorAll(SEL),function(el){var k=K(el.textContent),c=k?'k-'+k:''; KS.forEach(function(x){if(x!==c&&el.classList.contains(x))el.classList.remove(x);});if(c&&!el.classList.contains(c))el.classList.add(c);}); [].forEach.call(document.querySelectorAll('details.ent'),function(d){var a=d.querySelector('summary .entact');if(!a)return; var n=d.querySelectorAll('.tq:not(.confirmed) .qm').length,b=a.querySelector('.qbadge'); if(n){if(!b){b=document.createElement('span');b.className='qbadge';b.title='Unconfirmed readings [?] in this entry (tap \\u2713 next to each to confirm)';a.insertBefore(b,a.firstChild);} var t='[?] '+n;if(b.textContent!==t)b.textContent=t;}else if(b)b.remove();});} window.oprKind=K;window.oprKindApply=apply;var q=0; function sch(){if(q)return;q=1;setTimeout(function(){q=0;apply();},0);} function start(){apply();new MutationObserver(sch).observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});} if(document.body)start();else document.addEventListener('DOMContentLoaded',start);})();"
+CHIP_JS = "(function(){if(window.oprKind)return; var KS=['k-done','k-need','k-proc','k-wait','k-err','k-none'],SEL='.chip,.segchip,.fbchip,.entok,.corrpend,.corrsent'; function K(t){t=String(t||'').replace(/^[\\s\\u2713\\u26a0\\ufe0e\\u23f3\\u2716\\u25cb!]+/,'').toLowerCase();if(!t)return ''; if(/^(blocked|error|failed|not sent|not done|not approved)/.test(t))return 'err'; if(/^(queued for redo|correction (pending|sent)|recut|draft)/.test(t))return 'need'; if(/^waiting on transcriber/.test(t))return 'wait'; if(/^waiting on expansion/.test(t))return 'proc'; if(/hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving|researching/.test(t))return 'proc'; if(/^(approved|locked|updated|done|complete|page found|added)/.test(t))return 'done'; if(/^not started/.test(t))return 'none';return '';} function apply(){[].forEach.call(document.querySelectorAll(SEL),function(el){var k=K(el.textContent),c=k?'k-'+k:''; KS.forEach(function(x){if(x!==c&&el.classList.contains(x))el.classList.remove(x);});if(c&&!el.classList.contains(c))el.classList.add(c);}); [].forEach.call(document.querySelectorAll('details.ent'),function(d){var a=d.querySelector('summary .entact');if(!a)return; var n=d.querySelectorAll('.tq:not(.confirmed) .qm').length,b=a.querySelector('.qbadge'); if(n){if(!b){b=document.createElement('span');b.className='qbadge';b.title='Unconfirmed readings [?] in this entry (tap \\u2713 next to each to confirm)';a.insertBefore(b,a.firstChild);} var t='[?] '+n;if(b.textContent!==t)b.textContent=t;}else if(b)b.remove();});} window.oprKind=K;window.oprKindApply=apply;var q=0; function sch(){if(q)return;q=1;setTimeout(function(){q=0;apply();},0);} function start(){apply();new MutationObserver(sch).observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});} if(document.body)start();else document.addEventListener('DOMContentLoaded',start);})();"
 def _kind(st):
     t = re.sub(r'^[\s\u2713\u26a0\ufe0e\u23f3\u2716\u25cb!]+', '', str(st or '')).lower()
     if not t: return ''
     if re.match(r'(blocked|error|failed|not sent|not done|not approved)', t): return 'err'
     if re.match(r'(queued for redo|correction (pending|sent)|recut|draft)', t): return 'need'
     if t.startswith('waiting on transcriber'): return 'wait'
-    if re.search(r'hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving', t): return 'proc'
-    if re.match(r'(approved|locked|updated|done|complete)', t): return 'done'
+    if re.search(r'hold|^redoing|^queued|progress|running|transcrib|extracting|updating|first pass|sending|requesting|approving|researching', t): return 'proc'
+    if re.match(r'(approved|locked|updated|done|complete|page found|added)', t): return 'done'
     if t.startswith('not started'): return 'none'
     return ''
 PAGE_CSS = ('body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:20px;color:#222}h1{font-size:20px;margin:0 0 6px}'
@@ -279,21 +293,266 @@ def _sb_summary(j):
             if isinstance(v, str) and v.strip(): name = v.strip(); break
     return date, name
 
-def write_extraction_pages(rows):
+TR_CSS = ('details.tr{border:1px solid #c9d2e0;border-left:4px solid #56b4e9;border-radius:6px;margin:8px 0;background:#fbfcfe}'
+          'details.ent details.tr>summary,details.tr>summary{cursor:pointer;padding:6px 10px;font-weight:700;font-size:14px;min-height:28px;background:#eef6fc;border:0;border-radius:6px 6px 0 0}'
+          'details.tr>div{padding:2px 12px 10px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.45}'
+          '@media (pointer:coarse){details.ent details.tr>summary,details.tr>summary{min-height:44px;box-sizing:border-box;padding-top:12px}}')
+
+def _tr_text(v):
+    """translation value -> text: a string, or {'text': ...} (Stage B translation_en.text), else ''."""
+    if isinstance(v, str): return v.strip()
+    if isinstance(v, dict) and isinstance(v.get('text'), str): return v['text'].strip()
+    return ''
+
+def _tr_block(label, lang, text, E):
+    """Read-only translation block, open by default; nothing when the text is absent."""
+    return (f'<details class="tr" open><summary>{E(label)}</summary><div lang="{lang}">{E(text)}</div></details>' if text else '')
+
+# ---- Extraction pages: Stage B records as label-and-value (Stephen, 29 Sep 2026) + Page metadata card ----
+PAGE_META_SUFFIX = '_page_metadata.json'          # stageB/<code>/*_page_metadata.json: one per page (spreads: two); never a record
+def _is_meta(p): return os.path.basename(p).endswith(PAGE_META_SUFFIX)
+SCHEMA_DIRS = [os.environ.get('OPR_SCHEMA_DIR', '/workspace/lank-schema/book-meta/entry/extraction')]   # Schema Steward schemas (read-only)
+_SCHEMAS = None
+def _schema_props(schema_id):
+    """{field: (title or None, description or None)} from the Stage B JSON schema whose $id names schema_id; {} if none."""
+    global _SCHEMAS
+    if _SCHEMAS is None:
+        _SCHEMAS = {}
+        for d in SCHEMA_DIRS:
+            for p in glob.glob(os.path.join(d, '*.schema.json')):
+                try: s = json.load(open(p, encoding='utf-8'))
+                except Exception: continue
+                m = re.search(r'/schemas/([^/]+)/', str(s.get('$id', '')))
+                props = {k: (v.get('title'), v.get('description')) for k, v in (s.get('properties') or {}).items() if isinstance(v, dict)}
+                if m: _SCHEMAS[m.group(1)] = props
+    return _SCHEMAS.get(str(schema_id or ''), {})
+
+_POSS = {'child', 'father', 'mother', 'godfather', 'godmother', 'groom', 'bride', 'deceased', 'spouse', 'priest'}
+_WORDS = {'iso': '(ISO)', 'id': 'ID', 'url': 'URL', 'en': '(English)', 'de': '(German)', 'latin': 'Latin', 'md5': 'MD5', 'a': 'A', 'b': 'B', 'pg': 'pg', 'ids': 'IDs'}
+_LABELS = {'place_ref': 'Place', 'soft_fields': 'Uncertain fields', 'banns_or_dispensation': 'Banns or dispensation',
+           'spouse_or_parents': 'Spouse or parents', 'witnesses_other': 'Other witnesses'}
+def _human(k):
+    """child_given_name -> "Child's given name", date_of_baptism -> 'Date of baptism', baptism_date_iso -> 'Baptism date (ISO)'."""
+    if k in _LABELS: return _LABELS[k]
+    parts = [x for x in str(k).split('_') if x]
+    if not parts: return str(k)
+    head = ''
+    if len(parts) > 1 and parts[0] in _POSS and not parts[1].isdigit(): head = parts[0].capitalize() + '\u2019s '; parts = parts[1:]
+    s = ' '.join(_WORDS.get(w, w) for w in parts)
+    return head + s if head else s[:1].upper() + s[1:]
+
+def _label(k, props):
+    t, d = props.get(k, (None, None))
+    return (t or _human(k)), (d or '')
+
+def _empty(v): return v is None or (isinstance(v, str) and not v.strip()) or (isinstance(v, (list, dict)) and not v)
+
+def _summ(o):
+    """One-line summary of an object in a list (e.g. a godparent): given name + surname / name, alias, then residence/role."""
+    g = lambda *ks: next((str(o[k]).strip() for k in ks if isinstance(o.get(k), (str, int, float)) and str(o[k]).strip()), '')
+    name = ' '.join(x for x in (g('given_name', 'first_name', 'forename', 'given'), g('surname', 'last_name', 'family_name')) if x) \
+        or g('name', 'full_name', 'name_as_written', 'as_written', 'text')
+    al = g('alias', 'dictus', 'vulgo', 'genannt')
+    tail = ', '.join(x for x in (g('residence', 'residence_as_written', 'place', 'town', 'origin'), g('role', 'relation', 'status', 'kind')) if x)
+    s = (name + (f' {al}' if al else '')).strip()
+    if not s:
+        vals = [str(v).strip() for v in o.values() if isinstance(v, (str, int, float)) and str(v).strip()]
+        s = ', '.join(vals[:2])
+    return (s + (', ' + tail if tail and tail not in s else '')) or '(no details)'
+
+def _unc(note, E):
+    return (f' <span class="unc" title="{E(note)}">\u26a0\ufe0e [?]</span> <span class="uncn">{E(note)}</span>' if note else '')
+
+def _val(v, E, props, soft, depth=0, mono=False):
+    """HTML for one value; lists -> bullets (objects: summary line + indented sub-fields); dicts -> nested label/value."""
+    if _empty(v): return '<span class="none">none</span>' if isinstance(v, list) else '<span class="none">\u2014</span>'
+    if isinstance(v, bool): return 'Yes' if v else 'No'
+    if isinstance(v, list):
+        li = []
+        for x in v:
+            if isinstance(x, dict):
+                li.append(f'<li><span class="bsum">{E(_summ(x))}</span>' + _kv(x, E, props, {}, depth + 1) + '</li>')
+            else: li.append(f'<li>{_val(x, E, props, soft, depth + 1)}</li>')
+        return '<ul class="bl">' + ''.join(li) + '</ul>'
+    if isinstance(v, dict): return _kv(v, E, props, {}, depth + 1)
+    return f'<span class="{"kvt mono" if mono else "kvt"}">{E(v)}</span>'
+
+def _row(k, v, E, props, soft, label=None, extra='', mono=False):
+    lab, desc = (label, '') if label else _label(k, props)
+    full = isinstance(v, (list, dict)) and not _empty(v)
+    cls = 'kr' + (' kv-empty' if _empty(v) else '') + (' kfull' if full else '')
+    return (f'<div class="{cls}"><div class="kl"{f" title={chr(34)}{E(desc)}{chr(34)}" if desc else ""}>{E(lab)}</div>'
+            f'<div class="kvv">{_val(v, E, props, soft, mono=mono)}{_unc(soft.get(k), E) if isinstance(soft.get(k), str) else ""}{extra}</div></div>')
+
+def _kv(o, E, props, soft, depth=0, keys=None):
+    return '<div class="kv">' + ''.join(_row(k, o[k], E, props, soft) for k in (keys if keys is not None else o)) + '</div>'
+
+_SECTIONS = [('Event', r'(^|_)dates?(_|$)|^age$|^cause$|burial_place|marriage_place|^banns'), ('Child', r'^child_'),
+             ('Deceased', r'^deceased_|^status$|^spouse_or_parents$|^residence$'), ('Groom', r'^groom_'), ('Bride', r'^bride_'),
+             ('Father', r'^father|^paternal_'), ('Mother', r'^mother|^maternal_'), ('Parents', r'^parents_'),
+             ('Godparents', r'^god(father|mother|parent)'), ('Witnesses', r'^witness'), ('Priest', r'^priest'),
+             ('Text', r'^(diplomatic_text|transcription_latin|expanded_latin)$'), ('Notes', r'^notes?$'),
+             ('Record', r'^(schema_|stage|entry|parish_slug|archival_id|scan$|page$|incomplete|continu)'), ('Files', r'crop|path')]
+_SKIP = {'translation_en', 'translation_de', 'soft_fields'}
+
+def _record_html(j, E):
+    """Label-and-value body of one Stage B record (sections, nested objects as subsections, uncertainty markers)."""
+    props = _schema_props(j.get('schema_id')); soft = j.get('soft_fields') if isinstance(j.get('soft_fields'), dict) else {}
+    buckets, nested, other = {t: [] for t, _ in _SECTIONS}, [], []
+    for k, v in j.items():
+        if k in _SKIP: continue
+        if isinstance(v, dict) and v: nested.append(k); continue
+        t = next((t for t, rx in _SECTIONS if re.search(rx, k)), None)
+        (buckets[t] if t else other).append(k)
+    order = [t for t, _ in _SECTIONS[:11]] + ['__nested__', 'Text', 'Notes', '__other__', 'Record', 'Files']
+    out = []
+    def sec(title, keys, mono=False, src=None):
+        src = j if src is None else src
+        if not keys: return
+        rows = ''.join(_row(k, src[k], E, props, soft if src is j else {}, mono=mono) for k in keys)
+        allempty = all(_empty(src[k]) for k in keys)
+        out.append(f'<div class="ksec{" kv-empty" if allempty else ""}"><h4>{E(title)}</h4><div class="kv">{rows}</div></div>')
+    for t in order:
+        if t == '__nested__':
+            for k in nested: sec(_label(k, props)[0], list(j[k]), src=j[k])
+        elif t == '__other__': sec('Other fields', other)
+        else: sec(t, buckets[t], mono=(t in ('Text', 'Files')))
+    left = {k: v for k, v in soft.items() if k not in j or k in _SKIP}
+    if left: sec('Uncertain fields', list(left), src=left)
+    return ''.join(out)
+
+def _record_card(fn, j, body, E, rid):
+    if not isinstance(j, dict) or not j:
+        return f'<div class="rec"><h3>Stage B record <span class="fn">{E(fn)}</span></h3><pre>{E(body)}</pre></div>'
+    ne = sum(1 for k, v in j.items() if k not in _SKIP and _empty(v))
+    return (f'<div class="rec" id="{E(rid)}"><h3>Stage B record <span class="fn">{E(fn)}</span>'
+            + (f' <button type="button" class="emptog" aria-pressed="false" data-n="{ne}">Show empty fields ({ne})</button>' if ne else '') + '</h3>'
+            + _record_html(j, E)
+            + _tr_block('English', 'en', _tr_text(j.get('translation_en')), E) + _tr_block('Deutsch', 'de', _tr_text(j.get('translation_de')), E)
+            + f'<details class="vj"><summary>View JSON</summary><pre>{E(body)}</pre></details></div>')
+
+_META_ORDER = [('Parish', ('parish', 'parish_name', 'parish_slug')), ('Book', ('book', 'archival_id', 'book_code')),
+               ('Image/Page', ('image', 'scan', 'page', 'page_number', 'printed_page')), ('Register type', ('register_type', 'register_record_type', 'register_types')),
+               ('Year(s)', ('page_years', 'years', 'year', 'page_year', 'year_range')), ('Date range', ('date_range', 'date_from', 'date_to', 'first_date', 'last_date')),
+               ('Register numbers', ('register_numbers', 'register_number_range', 'register_number', 'entry_numbers')), ('Entry count', ('entry_count', 'entries_count', 'n_entries')),
+               ('Column headings', ('column_headings', 'columns')), ('Page-level text', ('page_text', 'page_level_text', 'page_texts', 'texts', 'other_text')),
+               ('Languages', ('languages', 'language', 'script_language')), ('Scribe', ('scribe', 'scribes', 'hands_or_scribes', 'hand'))]
+_META_URLS = ('book_url', 'matricula_book_url', 'page_url', 'matricula_page_url', 'matricula_url', 'url')
+
+def _meta_text_items(v, E):
+    items = v if isinstance(v, list) else [v]
+    li = []
+    for x in items:
+        if isinstance(x, dict):
+            kind = x.get('kind') or x.get('type') or x.get('position') or ''
+            txt = x.get('text') or x.get('verbatim') or _summ(x)
+            li.append(f'<li>{f"<span class=ktag>[{E(kind)}]</span> " if kind else ""}<span class="kvt">{E(txt)}</span></li>')
+        elif not _empty(x): li.append(f'<li><span class="kvt">{E(x)}</span></li>')
+    return '<ul class="bl">' + ''.join(li) + '</ul>' if li else '<span class="none">none</span>'
+
+def _meta_card(fn, j, r, E, anchor, n_of):
+    props = _schema_props(j.get('schema_id')); used = set(_META_URLS); rows = []
+    def pick(keys):
+        for k in keys:
+            if k in j: return k, j[k]
+        return None, None
+    for lab, keys in _META_ORDER:
+        if lab == 'Book':
+            k, v = pick(keys); used.update(keys); v = v or r.get('book')
+            url = j.get('book_url') or j.get('matricula_book_url') or _book_url(r)
+            rows.append(f'<div class="kr{" kv-empty" if _empty(v) else ""}"><div class="kl">Book</div><div class="kvv">'
+                        + (_hl(url, v, E, 'Open the book\u2019s title page on Matricula (new tab)') if not _empty(v) else '<span class="none">\u2014</span>') + '</div></div>')
+        elif lab == 'Image/Page':
+            used.update(keys); im = j.get('image') or j.get('scan') or r.get('image'); pg = j.get('page_number') or j.get('printed_page') or j.get('page') or r.get('page')
+            if im and im == r.get('image_id'): im = r.get('image') or im          # show the row's image label (T 0091), not the image id
+            t = ' / '.join(str(x) for x in (im, (f'page {pg}' if pg not in (None, '') else '')) if x not in (None, ''))
+            url = j.get('page_url') or j.get('matricula_page_url') or j.get('matricula_url') or j.get('url') or r.get('url')
+            rows.append(f'<div class="kr{" kv-empty" if not t else ""}"><div class="kl">Image/Page</div><div class="kvv">'
+                        + (_hl(url, t, E, 'Open this page on Matricula (new tab)') if t else '<span class="none">\u2014</span>') + '</div></div>')
+        elif lab == 'Date range':
+            used.update(keys); v = j.get('date_range')
+            if isinstance(v, dict): v = ' \u2013 '.join(str(v.get(a)) for a in ('from', 'to', 'start', 'end', 'first', 'last') if v.get(a))
+            elif isinstance(v, list): v = ' \u2013 '.join(str(x) for x in v if x)
+            if _empty(v): v = ' \u2013 '.join(str(j[a]) for a in ('date_from', 'first_date', 'date_to', 'last_date') if not _empty(j.get(a)))
+            rows.append(_row('date_range', v or None, E, {}, {}, label='Date range'))
+        elif lab == 'Register numbers':
+            k, v = pick(keys); used.update(keys)
+            if isinstance(v, dict): v = ' \u2013 '.join(str(v.get(a)) for a in ('from', 'to', 'start', 'end', 'first', 'last') if v.get(a) not in (None, ''))
+            rows.append(_row(k or keys[0], v, E, {}, {}, label=lab))
+        elif lab == 'Page-level text':
+            k, v = pick(keys); used.update(keys)
+            rows.append(f'<div class="kr{" kv-empty" if _empty(v) else " kfull"}"><div class="kl">Page-level text</div><div class="kvv">'
+                        + (_meta_text_items(v, E) if not _empty(v) else '<span class="none">none</span>') + '</div></div>')
+        else:
+            k, v = pick(keys); used.update(keys)
+            rows.append(_row(k or keys[0], v, E, props, {}, label=lab))
+    extra = [k for k in j if k not in used]
+    ex = ''.join(_row(k, j[k], E, props, {}) for k in extra)
+    ne = sum(1 for x in rows if 'kv-empty' in x[:40]) + sum(1 for k in extra if _empty(j[k]))
+    return (f'<section class="pmeta rec" id="{E(anchor)}"><h2>Page metadata{f" ({n_of})" if n_of else ""} <span class="fn">{E(fn)}</span>'
+            + (f' <button type="button" class="emptog" aria-pressed="false" data-n="{ne}">Show empty fields ({ne})</button>' if ne else '') + '</h2>'
+            + '<div class="kv">' + ''.join(rows) + '</div>' + (f'<div class="ksec"><h4>Other fields</h4><div class="kv">{ex}</div></div>' if ex else '')
+            + f'<details class="vj"><summary>View JSON</summary><pre>{E(json.dumps(j, indent=2, ensure_ascii=False))}</pre></details></section>\n')
+
+def _meta_cards(c, r, E):
+    fs = sorted(p for p in glob.glob(os.path.join(W, 'stageB', c, '*' + PAGE_META_SUFFIX)) if '.bak' not in os.path.basename(p))
+    if not fs:
+        return ('<section class="pmeta" id="pagemeta"><h2>Page metadata</h2><span class="chip k-proc">Page metadata pending</span>'
+                ' <span class="src">no stageB/' + E(c) + '/*' + PAGE_META_SUFFIX + ' yet</span></section>\n')
+    out = ''
+    for i, p in enumerate(fs):
+        try: j = json.load(open(p, encoding='utf-8'))
+        except Exception as ex: j = {'unreadable': str(ex)}
+        out += _meta_card(os.path.basename(p), j if isinstance(j, dict) else {'value': j}, r, E, 'pagemeta' if i == 0 else f'pagemeta-{i + 1}',
+                          f'{i + 1} of {len(fs)}' if len(fs) > 1 else '')
+    return out
+
+KV_CSS = ('.kv{display:grid;grid-template-columns:minmax(150px,28%) minmax(0,1fr);gap:3px 14px;margin:2px 0 6px}'
+          '.kr{display:contents}.kl{font-weight:600;color:#444;font-size:14px;padding:3px 0}.kvv{padding:3px 0;min-width:0;overflow-wrap:anywhere;font-size:15px}'
+          '.kr.kfull>.kl{grid-column:1/-1;padding-bottom:0}.kr.kfull>.kvv{grid-column:1/-1;padding-top:0}'
+          '.kvt{white-space:pre-wrap}.kvt.mono{font-family:Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:14px}.none{color:#777}'
+          'ul.bl{margin:2px 0 4px;padding-left:22px;list-style:disc}ul.bl>li{margin:2px 0}ul.bl .kv{margin-left:4px;font-size:14px}.bsum{font-weight:600}'
+          '.ksec h4{margin:12px 0 2px;font-size:14px;color:#1a3d7c;border-bottom:1px solid #e1e6ef;padding-bottom:2px}'
+          '.rec{border:1px solid #d5dce8;border-radius:8px;padding:6px 12px 8px;margin:10px 0;background:#fff}'
+          '.rec:not(.showempty) .kv-empty{display:none}'
+          '.emptog{margin-left:8px;font-size:12px;padding:2px 10px;border:1px solid #0072b2;background:#fff;color:#0b4f8a;border-radius:6px;cursor:pointer;font-weight:600}'
+          '.emptog[aria-pressed=true]{background:#e8f1fa}'
+          '.unc{background:#e69f00;color:#000;border:1px solid #000;border-radius:4px;padding:0 4px;font-weight:800;font-size:12px;white-space:nowrap}'
+          '.uncn{font-style:italic;color:#444;font-size:13px}'
+          'details.vj{margin-top:8px}details.vj>summary{cursor:pointer;font-size:12px;color:#555;padding:4px 0}details.vj pre{font-size:12px;max-height:60vh;overflow:auto}'
+          '.pmeta{border-left:4px solid #0072b2;background:#f8fafd}.pmeta h2{margin:6px 0}.ktag{font-family:monospace;font-size:12px;color:#0b4f8a;background:#e8f1fa;border:1px solid #0072b2;border-radius:4px;padding:0 4px}'
+          'a.ttag{display:inline-block;margin-left:8px;padding:1px 9px;font-size:12px;font-weight:600;border-radius:10px;background:#eef2f8;color:#0b4f8a;border:1px dashed #0072b2;text-decoration:none}'
+          'a.ttag::before{content:"\\2139\\fe0e\\00a0"}'
+          '@media (max-width:699px){.kv{grid-template-columns:minmax(0,1fr);gap:0}.kl{padding:6px 0 0;font-size:13px}.kvv{padding:0 0 4px}.rec{padding:6px 10px}}'
+          '@media (pointer:coarse){.emptog{min-height:44px;padding:6px 12px;font-size:14px}details.vj>summary{min-height:44px;display:flex;align-items:center}a.ttag{padding:12px 12px;font-size:14px}}')
+KV_JS = ('<script>(function(){var K="oprEmpty:"+location.pathname;function st(){try{return JSON.parse(sessionStorage.getItem(K)||"{}")}catch(e){return {}}}'
+         'function ap(){var s=st();[].forEach.call(document.querySelectorAll(".rec[id]"),function(r){var b=r.querySelector(".emptog");var on=!!s[r.id];'
+         'r.classList.toggle("showempty",on);if(b){b.setAttribute("aria-pressed",on?"true":"false");b.textContent=(on?"Hide empty fields":"Show empty fields")+" ("+b.dataset.n+")";}});}'
+         'if(!window.oprEmptyInit){window.oprEmptyInit=1;document.addEventListener("click",function(ev){var b=ev.target.closest&&ev.target.closest(".emptog");if(!b)return;'
+         'var r=b.closest(".rec");if(!r||!r.id)return;var s=st();s[r.id]=!s[r.id];try{sessionStorage.setItem(K,JSON.stringify(s))}catch(e){}ap();});}ap();})();</script>\n')
+
+def write_extraction_pages(rows, man=None):
     xd = os.path.join(OUT, 'extraction'); os.makedirs(xd, exist_ok=True); made = []; bundles = []
+    man = man if man is not None else load_manifest()
     E = lambda t: _html.escape(str(t if t is not None else ''), quote=True)
     for r in rows:
         xs = str(r['extraction']['status']).lower()
         if not xs.startswith(('draft', 'approved')): continue
-        nb, nbl = _json_field_counts([p for p in glob.glob(os.path.join(W, 'stageB', r['code'], '*.json')) if '.bak' not in os.path.basename(p) and not p.endswith('_page_metadata.json')], 'stage_b_status', 'status')
+        nb, nbl = _json_field_counts([p for p in glob.glob(os.path.join(W, 'stageB', r['code'], '*.json')) if '.bak' not in os.path.basename(p) and not _is_meta(p)], 'stage_b_status', 'status')
         c = r['code']; r['extraction']['link'] = f'extraction/{c}.html'
-        booku = f"{MBASE}{r['collection']}/{r['book']}/?pg=1"      # title page (BOOKPG in index.html: all books = 1)
+        booku = _book_url(r)      # title page (BOOKPG in index.html: all books = 1); diocese-aware, '' when unknown
         sa = _stagea_entries(c); mdfull = ''
         if not sa:
             md = _sa_md(c) or os.path.join(_sa(c), f'{c}_stageA.md')
             if os.path.isfile(md): mdfull = open(md, encoding='utf-8').read()
         sb = _stageb_records(c)
         nrec = sum(len(v) for v in sb.values()); secs = []
+        scr = _stagea_crops(c); pub = _PUB.get(c, {}); titles = {}          # title rows: manifest / Stage A entry_kind 'title'
+        for e in man.get(r.get('image_id') or '', []) if r.get('image_id') else []:
+            if str(e.get('entry_kind', '')).lower() in ('title', 'header', 'page_header'): titles.setdefault(_enum(str(e.get('entry_id', ''))), []).append(e.get('crop_path') or '')
+        for n0, parts in sa.items():
+            if any(re.search(r'(^|, )(title|header)$', lab or '') for _, lab, _ in parts): titles.setdefault(n0, [])
+        titles = {k: [x for x in v if x] for k, v in titles.items()}
         for n in sorted(set(sa) | set(sb)):
             en = f'e{n}' if n < 10**6 else 'e?'
             recs = sb.get(n, [])
@@ -303,7 +562,9 @@ def write_extraction_pages(rows):
                 if not (dt or nm): summ += f' \u00b7 <span class="fn">{E(recs[0][0])}</span>'
             else:
                 lab = ', '.join(x[1] for x in sa.get(n, []) if x[1])
-                summ = f'<b>{E(en)}</b>' + (f' \u00b7 <span class="fn">{E(lab)}</span>' if lab else '') + ' <span class="miss">no Stage B record</span>'
+                summ = f'<b>{E(en)}</b>' + (f' \u00b7 <span class="fn">{E(lab)}</span>' if lab else '') + (
+                    ' <a class="ttag" href="#pagemeta" title="Title row: no record; see the Page metadata card">Title row, no record</a>' if n in titles
+                    else ' <span class="miss">no Stage B record</span>')
             if n in sa:
                 a = ''.join(f'<h3>Stage A diplomatic text <span class="fn">{E(tag)}{(" \u00b7 " + E(lab)) if lab else ""}</span></h3>'
                             f'<pre class="transcription stagea-text">{E(t)}</pre>' for tag, lab, t in sa[n])
@@ -311,18 +572,27 @@ def write_extraction_pages(rows):
                 a = f'<p class="miss">Stage A: no diplomatic JSON for this entry; see the full {E(c)}_stageA.md at the top of the page.</p>'
             else:
                 a = '<p class="miss">MISSING: no Stage A diplomatic text for this entry.</p>'
-            b = ''.join(f'<h3>Stage B record <span class="fn">{E(fn)}</span></h3><pre>{E(body)}</pre>' for fn, j, body in recs) \
-                or '<p class="miss">MISSING: no Stage B record for this entry.</p>'
+            b = ''.join(_record_card(fn, j, body, E, f'r-{en}-{i}') for i, (fn, j, body) in enumerate(recs))
+            if not b and n in titles:
+                b = '<p class="src">Title row: its content is described in the Page metadata card.</p>'
+            elif not b: b = '<p class="miss">MISSING: no Stage B record for this entry.</p>'
+            figs = ''
+            if n in titles and not recs:
+                for src in scr.get(n, []) or titles[n]:
+                    hit = pub.get(os.path.abspath(src)) or pub.get(os.path.splitext(os.path.basename(src))[0])
+                    figs += (f'<figure class="crop"><img src="../segmentation/{E(hit[0])}?v={hit[1]}" alt="{E(os.path.basename(src))}" loading="lazy"></figure>' if hit
+                             else f'<p class="miss">crop not found: {E(os.path.basename(src))}</p>')
+                a = figs + a
             secs.append(f'<details class="ent" id="{E(en)}"><summary>{summ}</summary><div class="body">{a}{b}</div></details>\n')
         top = (f'<h2>Stage A summary ({E(c)}_stageA.md, fallback)</h2><pre class="transcription stagea-text">{E(mdfull)}</pre>\n' if mdfull else '')
         page = ('<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">' + NOCACHE + '<script>' + CHIP_JS + '</script>\n'
-            f'<title>Row {E(r["id"])} {E(c)} \u2013 {"draft extraction" if xs.startswith("draft") else "extraction"}</title><style>{PAGE_CSS}{CHIP_CSS}'
+            f'<title>Row {E(r["id"])} {E(c)} \u2013 {"draft extraction" if xs.startswith("draft") else "extraction"}</title><style>{PAGE_CSS}{CHIP_CSS}{TR_CSS}'
             'details.ent{border:1px solid #d5dce8;border-radius:6px;margin:0 0 8px;background:#fff}'
             'details.ent summary{cursor:pointer;padding:8px 12px;font-size:15px;background:#f5f7fb;border-radius:6px}'
             'details.ent[open] summary{border-bottom:1px solid #d5dce8;border-radius:6px 6px 0 0}'
             'details.ent .body{padding:4px 12px 10px}.miss{color:#d55e00;font-weight:600;font-size:13px}'
-            '#tg{margin:0 0 10px;padding:4px 12px;cursor:pointer}</style></head><body>\n'
+            '#tg{margin:0 0 10px;padding:4px 12px;cursor:pointer}figure.crop{margin:8px 0}figure.crop img{max-width:100%;height:auto;display:block;border:1px solid #ddd}' + KV_CSS + '</style></head><body>\n'
             '<p><a href="../index.html">&larr; Dashboard</a></p>\n'
             f'<h1>Row {E(r["id"])}: {E(r["name"])} <span class="fn">({E(c)})</span> \u2013 Record extraction: {E(r["extraction"]["status"])}</h1>\n'
             + _sticky(r, 'Extraction', r["extraction"]["status"], E,
@@ -333,10 +603,11 @@ def write_extraction_pages(rows):
                        f'<a href="{E(r["url"])}" target="_blank" rel="noopener">Matricula page</a> &nbsp;|&nbsp; '
                        f'<a href="{E(booku)}" target="_blank" rel="noopener">Book title page</a>'),
                 below=TOGGLE_JS) +
+            _meta_cards(c, r, E) +
             f'<h2>Entries ({len(secs)}; {nrec} {"draft " if xs.startswith("draft") else ""}Stage B record(s))</h2>\n' + top +
             (''.join(secs) or '<p>(no entries found)</p>\n') +
             f'<p class="src">Generated {E(datetime.datetime.now().astimezone().isoformat(timespec="seconds"))} by status.py</p>\n'
-            + OPEN_JS +
+            + KV_JS + OPEN_JS +
             '</body></html>\n')
         made.append(_write_page(xd, c, page, 'extraction', r)); bundles.append(f'{c}.bundle.js')
     for p in glob.glob(os.path.join(xd, '*.html')):          # drop pages for rows no longer Draft/Approved
@@ -351,7 +622,7 @@ def _stageb_records(code):
     sb = {}
     for p in sorted(glob.glob(f'{W}/stageB/{code}/*.json'), key=lambda q: (_enum(os.path.basename(q)), q)):
         fn = os.path.basename(p)
-        if fn.endswith('_page_metadata.json'): continue
+        if _is_meta(p) or '.bak' in fn: continue                 # page metadata is not a record
         try: j = json.load(open(p, encoding='utf-8')); body = json.dumps(j, indent=2, ensure_ascii=False)
         except Exception as ex: j = {}; body = f'unreadable: {ex}'
         n = _enum(fn)
@@ -723,6 +994,7 @@ def write_expansion_pages(rows):
                 tag = f' <span class="fn">{E(_etag(eid))}</span>' if len(eids) > 1 else ''
                 body += (f'<div class="xgrid"><div><h3>Diplomatic (Stage A){tag}</h3><pre class="transcription stagea-text">{E(dip)}</pre></div>'
                          f'<div><h3>Expanded{tag}</h3><pre class="transcription">{_exp_hl(exp, E)}</pre>'
+                         + _tr_block('Deutsch', 'de', x.get('tr_de', ''), E) + _tr_block('English', 'en', x.get('tr_en', ''), E)
                          + (f'<div class="src">{E(x["notes"])}</div>' if x.get('notes') else '') + '</div></div>')
             secs.append(f'<details class="ent" id="{E(en)}"><summary>{summ}</summary><div class="body">{body}</div></details>\n')
         banner = ('<div class="draftban" style="background:#e69f00;border:2px solid #000;border-radius:8px;padding:10px 14px;margin:0 0 14px;'
@@ -731,7 +1003,7 @@ def write_expansion_pages(rows):
         md = _exp_md(c)
         page = ('<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">' + NOCACHE + '<script>' + CHIP_JS + '</script>\n'
-            f'<title>Row {E(r["id"])} {E(c)} \u2013 expansion</title><style>{PAGE_CSS}{CHIP_CSS}{DETAILS_CSS}{EXP_CSS}figure.crop{{margin:8px 0}}figure.crop img{{max-width:100%;height:auto;display:block;border:1px solid #ddd}}</style></head><body>\n'
+            f'<title>Row {E(r["id"])} {E(c)} \u2013 expansion</title><style>{PAGE_CSS}{CHIP_CSS}{DETAILS_CSS}{EXP_CSS}{TR_CSS}figure.crop{{margin:8px 0}}figure.crop img{{max-width:100%;height:auto;display:block;border:1px solid #ddd}}</style></head><body>\n'
             '<p><a href="../index.html">&larr; Dashboard</a></p>\n'
             f'<h1>Row {E(r["id"])}: {E(r["name"])} <span class="fn">({E(c)})</span> \u2013 Expansion</h1>\n'
             + _sticky(r, 'Expansion', st, E,
@@ -947,7 +1219,9 @@ def _hl(url, txt, E, title):
 def _book_url(r):
     """Book title page on Matricula: same logic as booklink() in index.html (book_url, else collection/book/?pg=BOOKPG, BOOKPG is 1 for every book)."""
     if r.get('book_url'): return r['book_url']
-    return f'{MATRICULA_BASE}{r.get("collection") or "DE_EBAP_22212"}/{r["book"]}/?pg=1' if r.get('book') else ''
+    col = r.get('collection') or ('' if r.get('added') or r.get('added_by') else 'DE_EBAP_22212')
+    base = MATRICULA_BASE.replace('/paderborn/', f"/{r['diocese']}/") if r.get('diocese') else MATRICULA_BASE
+    return f'{base}{col}/{r["book"]}/?pg=1' if (r.get('book') and col) else ''
 def _img_link(r, E):
     return _hl(r.get('url'), r.get('image'), E, 'Open this image on Matricula (new tab)')
 
@@ -957,9 +1231,9 @@ def _img_link(r, E):
 # German terms are Matricula's own register titles. Suffix convention checked 29 Sep 2026 against the Matricula titles of every book in use:
 #   DE_EBAP_22212 (Horn): KB004-02-T Taufen 1760-1799, KB004-06-T Taufen 1800-1807, KB005-02-H Trauungen 1760-1807,
 #   KB006-01-S Sterbefälle 1760-1807, KB007-01-T Taufen 1808-1837, KB010-01-S Sterbefälle 1808-1851;  DE_EBAP_23815 (Warstein): KB013-01-S Sterbefälle 1843-1882.
-RECORD_TYPES = {'baptisms': ('Baptisms', 'Taufen'), 'marriages': ('Marriages', 'Trauungen'), 'burials': ('Burials/Deaths', 'Sterbefälle'),
+RECORD_TYPES = {'births': ('Births', 'Geburten'), 'confcomm': ('Confirmation/Communion', 'Firmung/Erstkommunion'), 'baptisms': ('Baptisms', 'Taufen'), 'marriages': ('Marriages', 'Trauungen'), 'burials': ('Burials/Deaths', 'Sterbefälle'),
                 'communion': ('First Communion', 'Erstkommunion'), 'confirmation': ('Confirmations', 'Firmungen'), 'notes': ('Notes', None)}
-_TYPE_WORDS = [('baptisms', r'bapti|taufe|geburt|birth'), ('marriages', r'marri|trauung|heirat|ehe|wedding'),
+_TYPE_WORDS = [('confcomm', r'^confirmation/communion$'), ('births', r'^(birth|geburt)'), ('baptisms', r'bapti|taufe|geburt|birth'), ('marriages', r'marri|trauung|heirat|ehe|wedding'),
                ('burials', r'buri|death|sterbe|begr(ä|ae|a)bni|tote|verstorb'), ('communion', r'communion|kommunion'),
                ('confirmation', r'confirm|firm'), ('notes', r'note|notiz|vermerk')]
 BOOK_SUFFIX_TYPES = {'T': 'baptisms', 'H': 'marriages', 'S': 'burials'}   # verified per book above; a new suffix/book -> 'Type unknown'
@@ -991,6 +1265,9 @@ def _register_types():
 def record_type(r):
     """-> {'key','en','de','label','source'} for a records.json row (see the order above)."""
     reg = _register_types()
+    if str(r.get('type') or '').startswith('Other:'):          # added row, record type 'Other' with Stephen's own words
+        t = str(r['type'])[6:].strip() or 'Other'
+        return {'key': 'other', 'en': t, 'de': '', 'label': f'Other: {t}', 'source': 'records.json type (added row)'}
     k1 = _type_key(r.get('type'))
     ki = reg['img'].get(r.get('image_id') or '', set())
     k2 = next(iter(ki)) if len(ki) == 1 else None
@@ -1165,6 +1442,19 @@ def write_segmentation_pages(rows, man):
     os.chmod(tmp, 0o644); os.replace(tmp, smp)
     return made
 
+def _added_info(r, ov):
+    """Extra fields for rows added with '＋ Add row': research chip, edit values, deletable (same rule as approve_server delete_row)."""
+    try:
+        import rowedit as RE
+        why = RE.work(RE.Ctx(W, D), r); dup = RE.same_page(RE.Ctx(W, D), r)
+    except Exception as ex: why, dup = [f'check failed: {ex}'], []
+    rs = str(r.get('research') or '')
+    return {'added': {'by': r.get('added_by'), 'at': r.get('added_at'), 'notes': r.get('notes', ''), 'book_url': r.get('book_url', ''),
+                      'page_url': r.get('url', ''), 'type_raw': r.get('type', ''), 'seg_requested': r.get('seg_requested', ''),
+                      'deletable': not why, 'work': why, 'same_page': dup},
+            'research': ({'status': rs, 'detail': {'Researching': 'Chief is looking for the book and page',
+                                                  'Page found': 'book, image and page are known'}.get(rs, ''), 'source': 'records.json'} if rs else None)}
+
 def main():
     try:                                   # Stephen's recorded reading choices survive a Transcriber/Extractor rewrite
         _codes = [x['code'] for x in json.load(open(os.path.join(D, 'records.json')))['records']]
@@ -1182,20 +1472,24 @@ def main():
             if b and par and b not in towns: towns[b] = par.split(',')[0].strip()
         except Exception: pass
     for r in recs['records']:
-        c, img = r['code'], r['image_id']; o = ov.get(c, {}) if isinstance(ov.get(c), dict) else {}
-        cells = {}
+        c, img = r['code'], r.get('image_id') or ''; o = ov.get(c, {}) if isinstance(ov.get(c), dict) else {}
+        cells = {}; added = bool(r.get('added_by')); located = bool(str(r.get('book') or '').strip() and str(r.get('page') or '').strip())
         for k, fn in (('segmentation', lambda: seg(img, man)), ('transcription', lambda: trans(c, img, man)),
                       ('expansion', lambda: expan(c, cells['transcription']['status'], o.get('expansion'))), ('extraction', lambda: extr(c, img))):
             v, why, *sx = fn(); src = sx[0] if sx else 'files'
             if v is None: v, why, src = r.get('baseline', {}).get(k, NS), '', 'baseline'
             if k in o and k != 'expansion': v, why, src = o[k], o.get('note', ''), 'override'   # expansion override handled (gated) in expan()
+            if added and k == 'segmentation' and src == 'baseline' and r.get('seg_requested'):
+                v, why, src = 'Queued', f"segmentation requested {str(r['seg_requested'])[11:16]} CT (book, image and page filled in)", 'rule'
+            if added and not located and k != 'extraction' and src != 'override':
+                v, why, src = NS, 'added row: waits for book and page', 'rule'
             if k == 'extraction' and src != 'files' and not expansion_output(c):
                 v, why, src = WAIT_EXP, 'Record Extraction starts once this row\u2019s Expansion has output', 'rule'   # existing Stage B drafts are 'files' and stay as they are
             cells[k] = {'status': v, 'detail': why, 'source': src}
         rows.append({**{k: r[k] for k in ('id', 'group', 'name', 'spouse', 'date', 'type', 'book', 'image', 'page', 'code')},
-                     'town': r.get('town') or towns.get(r['book'], ''), 'record_type': record_type(r),
-                     **mlink(r), **cells})
-    os.makedirs(OUT, exist_ok=True); write_extraction_pages(rows); write_segmentation_pages(rows, man); write_transcription_pages(rows, man); write_expansion_pages(rows)   # also set .link on linked chips
+                     'town': r.get('town') or towns.get(r['book'], ''), 'record_type': record_type(r), 'image_id': r.get('image_id') or '',
+                     **mlink(r), **cells, **(_added_info(r, ov) if added else {})})
+    os.makedirs(OUT, exist_ok=True); write_segmentation_pages(rows, man); write_extraction_pages(rows, man); write_transcription_pages(rows, man); write_expansion_pages(rows)   # segmentation first: fills _PUB (crops for extraction title rows); also sets .link on linked chips
     now = datetime.datetime.now().astimezone()
     data = {'generated_at': now.isoformat(timespec='seconds'), 'generated_epoch': int(now.timestamp()),
             'groups': recs['groups'], 'rows': rows}
@@ -1304,6 +1598,11 @@ def build_meta(rows, now):
          'backup in <code>_approve_backups/approve_expansion/</code>; log line <code>action=approve_expansion</code>; queue line <code>kind: expansion_approved</code>. Expanded text is never changed.'),
         ('Expansion Approve (per entry)', 'Locks one <code>.expanded.json</code> (<code>status/locked_by/locked_at</code>); backup in <code>_approve_backups/approve_expansion_entry/</code>; queue <code>kind: expansion_entry_approved</code>; '
          'the last entry flips the row to Approved (extra <code>expansion_approved</code> line with <code>auto_flip: true</code>).'),
+        ('\uff0b Add row / Edit details / Delete', 'Button below the table (end of the card list on phones). Inline form: Name and Record type required. '
+         '<code>add_row</code> writes a records.json row (group <b>Added rows</b>, code <code>N</code>+4-digit id, ids never reused: <code>records_meta.json</code> high-water + <code>_deleted_rows.jsonl</code>), '
+         'backup <code>records.json.bakN</code>, log line, queue <code>kind: row_added</code>. Research chip \U0001F50D Researching until the page is found (<code>setresearch.py</code>). '
+         'When book, image and page are all filled in (Edit details / <code>update_row</code> or Chief\u2019s <code>updaterow.py</code>): Research \u2713 Page found, Segmentation Queued, one queue line '
+         '<code>kind: segmentation_requested</code> (never repeated for the same book|image|page). <code>delete_row</code> only for added rows with no pipeline work (409 otherwise), queue <code>kind: row_deleted</code>.'),
         ('Extraction Approve', 'Locks the row\u2019s Stage B records (<code>stage_b_status</code>); backup in <code>_approve_backups/extraction/</code>; log + queue line <code>action: extraction</code>.'),
         ('Recut with latest algorithm', 'Only for Approved rows with no redo stage. Sets <code>segmentation: Queued for redo</code> in <code>overrides.json</code> (backup <code>.bakN</code>) and, if a transcription exists, '
          'puts it <b>On hold until crops approved</b>. Log + queue line <code>action: recut</code>. Never touches manifests or Stage A/B. Next: the Entry Segmenter re-cuts '
@@ -1370,7 +1669,7 @@ def build_meta(rows, now):
         f'Stage A entry files: {na} ({cnt(sa)}).',
         f'Stage B records with a schema: {nb} ({cnt(sb)}).',
         f'Rows: {len(rows)}. Segmentation \u2013 {cnt(st["segmentation"])}.',
-        f'Transcription \u2013 {cnt(st["transcription"])}.', f'Expansion \u2013 {cnt(st["expansion"])}.', f'Extraction \u2013 {cnt(st["extraction"])}.',
+        f'Transcription \u2013 {cnt(st["transcription"])}.', f'Expansion \u2013 {cnt(st["expansion"])}.', f'Extraction \u2013 {cnt(st["extraction"])}. Extraction pages show each Stage B record as labels and values (humanised field names; schema descriptions as tooltips), uncertainty as \u26a0 [?] + note, English/Deutsch translation blocks, a closed View JSON, and a Page metadata card at the top from <code>stageB/&lt;code&gt;/*_page_metadata.json</code> (never counted as a record or locked by Approve).',
         f'notify_queue.jsonl: {q if q is not None else "–"} lines; _approvals.log: {lg if lg is not None else "–"} lines.',
         f'Last refresh: {e(now.isoformat(timespec="seconds"))}.'])))
     h.append(sec('7. Backups and undo', ul([
