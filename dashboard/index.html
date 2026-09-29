@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><title>Wilmes records – status</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;margin:20px;color:#222;background:#fafafa}
+h1{font-size:20px;margin:0 0 4px}#meta{color:#555;margin-bottom:14px}#meta b{color:#222}
+#stale{display:none;background:#fff3cd;border:1px solid #e0c060;padding:6px 10px;border-radius:6px;margin-bottom:12px}
+table{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 3px #0001}
+th,td{padding:6px 8px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
+th{background:#f0f0f0;font-weight:600;position:sticky;top:0}
+tr.grp td{background:#e8eef7;font-weight:600;color:#234}
+td.n{color:#888;width:1.5em}
+.chip{display:inline-block;padding:2px 9px;border-radius:12px;font-size:12px;font-weight:600;white-space:nowrap;border:1px solid transparent}
+.s-locked,.s-approved{background:#1e7e34;color:#fff}
+.s-done{background:#cfe8d5;color:#155724;border-color:#9bd0a8}
+.s-draft{background:#fff3cd;color:#7a5b00;border-color:#ecd47e}
+.s-progress{background:#d6e9fb;color:#0b4f8a;border-color:#9cc7ef}
+.s-queued{background:#ece2f7;color:#5a2d8a;border-color:#cdb4ea}
+.s-blocked{background:#f8d7da;color:#842029;border-color:#eea3aa}
+.s-none{background:#eee;color:#777}
+.ov{font-size:10px;color:#a60;margin-left:3px}
+.changed{animation:flash 2.5s}@keyframes flash{from{background:#ffe97a}to{background:transparent}}
+a{color:#1a5fb4} a.mx{font-size:11px;color:#777;text-decoration:none;margin-left:4px}td.dt{white-space:nowrap}th.sortable{cursor:pointer;user-select:none}th.sortable:hover{text-decoration:underline}#da,#ta{color:#888;font-size:11px}nav.tabs{display:flex;gap:4px;border-bottom:2px solid #1a5fb4;margin:0 0 14px}nav.tabs a{padding:7px 18px;border:1px solid #ccc;border-bottom:none;border-radius:6px 6px 0 0;background:#f2f2f2;color:#333;text-decoration:none;font-weight:600}nav.tabs a.on{background:#1a5fb4;color:#fff;border-color:#1a5fb4}#tab-goals ol{list-style:none;padding-left:0;line-height:1.6;max-width:820px}#tab-goals li{margin-bottom:10px}#rf{margin-left:12px;padding:7px 18px;border:2px solid #1a5fb4;background:#1a5fb4;color:#fff;border-radius:6px;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.25);vertical-align:middle}#rf:hover{background:#fff;color:#1a5fb4}#meta{font-size:14px}#rf:disabled{opacity:.6;cursor:wait}#rfm{font-size:13px;color:#1e7e34;font-weight:600;margin-left:6px}#tab-goals .gt{font-weight:600}#tab-goals li.major{background:#fff8e1;border:2px solid #e0a800;border-left:6px solid #e0a800;border-radius:8px;padding:10px 14px;margin:6px 0 16px}#tab-goals li.major .gt{font-size:19px;font-weight:700;color:#1a3d7c}#tab-goals li.sub3 .gt{font-size:15px;font-weight:600;color:#333}#tab-goals ul.sg2{margin-top:2px}#tab-goals li.sub4 .gt{font-size:14px;font-weight:600;color:#333}#tab-goals .mj{display:inline-block;background:#e0a800;color:#fff;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:4px;margin-bottom:4px}#tab-goals ul.sg{margin:4px 0 0;padding-left:20px;font-weight:400;color:#333;line-height:1.5}#tab-goals ul.sg li{margin-bottom:2px}#tab-goals .d{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:10px;background:#eef2f8;color:#555;font-size:12px;font-weight:600;white-space:nowrap}#tab-goals .gtog{border:none;background:none;cursor:pointer;font-size:24px;line-height:1;color:#1a5fb4;width:30px;height:30px;padding:0;margin-right:4px;vertical-align:middle}#tab-goals ul.sg{list-style:none}#tab-goals .gtog:hover{color:#0b3a7a}#features-list > li{font-size:1.5em}#features-list ul.fsub{list-style:none;padding-left:32px;margin:6px 0 0}#features-list ul.fsub li{font-size:.8em;margin-bottom:6px}#features-list a.flink{color:#1a5fb4;text-decoration:none}#features-list a.flink:hover{text-decoration:underline}#fdetail h2{font-size:22px;margin:4px 0 12px}#fdetail .back{display:inline-block;margin-bottom:10px;font-weight:600;text-decoration:none}#fdetail .sw{display:flex;margin:0 0 14px}#fdetail .sw button{padding:8px 18px;border:2px solid #1a5fb4;background:#fff;color:#1a5fb4;font-weight:700;font-size:15px;cursor:pointer}#fdetail .sw button:first-child{border-radius:6px 0 0 6px}#fdetail .sw button:last-child{border-radius:0 6px 6px 0;border-left:none}#fdetail .sw button.on{background:#1a5fb4;color:#fff}#fdetail h3{font-size:17px;margin:18px 0 6px;color:#1a3d7c}#fdetail table{border-collapse:collapse;max-width:900px;width:100%;font-size:14px}#fdetail th,#fdetail td{border:1px solid #d5dce8;padding:6px 10px;text-align:left;vertical-align:top}#fdetail th{background:#eef2f8}#fdetail td.fn{font-weight:600;white-space:nowrap}#fdetail .req{color:#b00020;font-size:11px;font-weight:700;margin-left:4px}#fdetail .note{color:#555;font-size:13px;max-width:900px}nav.tabs{align-items:flex-end}nav.tabs .rfbox{margin-left:auto;display:flex;align-items:center;gap:6px;padding-bottom:4px}nav.tabs #rf{margin-left:0}a.xl{text-decoration:none}a.xl .chip{cursor:pointer;text-decoration:underline}.s-redoq{background:#dde3ea;color:#34495e;border-color:#8a9bb0}.s-redoing{background:#6f42c1;color:#fff;border-color:#5a32a3}.s-recut{background:#0f8b8d;color:#fff;border-color:#0b6e70}</style></head><body>
+<nav class="tabs"><a href="#dashboard" data-t="dash" class="on">Dashboard</a><a href="#goals" data-t="goals">Goals</a><a href="#features" data-t="features">Site features</a><span class="rfbox"><span id="rfm"></span><button id="rf" type="button" title="Get fresh data from the server now">↻ Refresh now</button></span></nav>
+<div id="tab-dash">
+<h1>Wilmes records – pipeline status</h1>
+<div id="meta">Last updated: <b id="ts">loading…</b> · <span id="age"></span> · checking every 20 s</div>
+<div id="stale"></div>
+<table><thead><tr><th></th><th>Name</th><th>Spouse</th><th id="dh" class="sortable" title="Click to sort by date">Date <span id="da"></span></th><!--/dh--><th id="th" class="sortable" title="Click to sort by town">Town <span id="ta"></span></th><th>Type</th><th>Book</th><th>Image</th><th>Page</th>
+<th>Segmentation</th><th>Transcription</th><th>Record Extraction</th></tr></thead><tbody id="tb"></tbody></table>
+<script>
+var POLL=15000, last=null, prev={};
+var qs=new URLSearchParams(location.search), SRC=qs.get('src');   // optional remote JSON URL
+function cls(s){s=(s||'').toLowerCase();
+ if(/^queued for redo/.test(s))return's-redoq';if(/^redoing/.test(s))return's-redoing';if(/^recut/.test(s))return's-recut';
+ if(/hold/.test(s))return's-draft';if(/lock|approv/.test(s))return's-locked';if(/done|review/.test(s))return's-done';
+ if(/draft/.test(s))return's-draft';if(/progress|running/.test(s)&&!/queued/.test(s))return's-progress';
+ if(/queued/.test(s))return's-queued';if(/block|error|fail/.test(s))return's-blocked';return's-none';}
+function esc(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function chip(c,key){var t=esc(c.status)+(c.detail?' — '+esc(c.detail):'')+' ['+c.source+']';
+ var ch=prev[key]!==undefined&&prev[key]!==c.status;prev[key]=c.status;
+ return '<td'+(ch?' class="changed"':'')+'>'+(c.link?'<a class="xl" href="'+esc(c.link)+'" title="Open page">':'')+'<span class="chip '+cls(c.status)+'" title="'+t+'">'+esc(c.status)+(c.progress&&/^draft/i.test(c.status)?' '+esc(c.progress):'')+(c.link?' ↗':'')+'</span>'+(c.link?'</a>':'')+(c.source==='override'?'<span class="ov">✎</span>':'')+'</td>';}
+var MPG={"KB004-02-T|T 0091": 92, "KB005-02-H|H 0135": 135, "KB004-06-T|T 0048": 49, "KB006-01-S|S 0172": 175, "KB005-02-H|H 0167": 167, "KB004-06-T|T 0071": 72, "KB007-01-T|T 0011": 11, "KB007-01-T|T 0124": 124, "KB007-01-T|T 0211": 211, "KB007-01-T|T 0334": 334, "KB007-01-T|T 0407": 393, "KB007-01-T|T 0455": 417, "KB010-01-S|S 0649": 477, "KB010-01-S|S 0691": 498, "KB004-06-T|T 0065": 66, "KB007-01-T|T 0405": 392, "KB007-01-T|T 0599": 489, "KB007-01-T|T 0625": 502, "KB010-01-S|S 0501": 403, "KB010-01-S|S 0202": 202, "DE_EBAP_23815|KB013-01-S|S 0036": 37};
+var MBASE='https://data.matricula-online.eu/de/deutschland/paderborn/';
+function mlink(r){  // always returns a URL: row url > MPG map > collection+book+pg/page
+ if(r.url)return r.url;
+ var col=r.collection||'DE_EBAP_22212';
+ var pg=r.pg||MPG[col+'|'+r.book+'|'+r.image]||(col==='DE_EBAP_22212'?MPG[r.book+'|'+r.image]:0);
+ if(!pg){var p=String(r.page||'').split(/[–-]/).pop().replace(/\D/g,'');pg=p||'';}
+ return MBASE+col+'/'+r.book+'/'+(pg?'?pg='+pg:'');}
+function alink(r,txt){return '<a class="ml" href="'+esc(mlink(r))+'" target="_blank" rel="noopener" title="Open on Matricula">'+esc(txt)+'</a>';}
+// Book column -> the book's title page. Default pg=1; per-book override where pg=1 is a cover/blank.
+// Checked 2026-09-29: pg=1 is the title/incipit page for all books below, so all are 1.
+var BOOKPG={"DE_EBAP_22212|KB004-02-T":1,"DE_EBAP_22212|KB004-06-T":1,"DE_EBAP_22212|KB005-02-H":1,"DE_EBAP_22212|KB006-01-S":1,"DE_EBAP_22212|KB007-01-T":1,"DE_EBAP_22212|KB010-01-S":1,"DE_EBAP_23815|KB013-01-S":1};
+function booklink(r){var col=r.collection||'DE_EBAP_22212';return r.book_url||(MBASE+col+'/'+r.book+'/?pg='+(BOOKPG[col+'|'+r.book]||1));}
+function bookcell(r){return '<a class="bl" href="'+esc(booklink(r))+'" target="_blank" rel="noopener" title="Open this book\'s title page on Matricula">'+esc(r.book)+'</a>';}
+function imgcell(r){return alink(r,r.image);}
+var SORT=location.hash=='#date-asc'||location.hash=='#town-asc'?1:location.hash=='#date-desc'||location.hash=='#town-desc'?-1:0; // 0 grouped, 1 asc, -1 desc
+var SKEY=/town/.test(location.hash)?'town':'date';
+var MON={Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+function dkey(s){s=(s||'').trim();var m=s.match(/^(\d{1,2}) ([A-Z][a-z]{2}) (\d{4})$/);
+ if(m)return (+m[3])*10000+(MON[m[2]]||0)*100+(+m[1]);
+ m=s.match(/(\d{4})/);return m?(+m[1])*10000:99999999;}
+function rowhtml(r){var h='';h+='<tr><td class="n">'+r.id+'</td><td>'+esc(r.name)+'</td><td>'+esc(r.spouse||'')+'</td><td class="dt">'+esc(r.date||'')+'</td><td>'+esc(r.town||'')+'</td><td>'+esc(r.type)+'</td><td class="bk">'+bookcell(r)+'</td><td class="img">'+imgcell(r)+'</td><td class="pg">'+alink(r,r.page||r.image)+'</td>'
+    +chip(r.segmentation,r.code+'s')+chip(r.transcription,r.code+'t')+chip(r.extraction,r.code+'e')+'</tr>';return h;}
+function render(d){last=d;var h='';
+ if(SORT){var rows=d.rows.slice().sort(function(a,b){var x=SKEY=='town'?String(a.town||'').localeCompare(String(b.town||''),'de')||dkey(a.date)-dkey(b.date):dkey(a.date)-dkey(b.date);return (x||a.id-b.id)*SORT;});
+  h+='<tr class="grp"><td colspan="12">All records by '+(SKEY=='town'?'town ('+(SORT>0?'A–Z':'Z–A')+', then by date)':'date ('+(SORT>0?'oldest first':'newest first')+')')+' · <a href="#" id="ungroup">back to grouped view</a></td></tr>';
+  rows.forEach(function(r){h+=rowhtml(r);});}
+ else d.groups.forEach(function(g){h+='<tr class="grp"><td colspan="12">'+esc(g)+'</td></tr>';
+  d.rows.filter(function(r){return r.group===g}).forEach(function(r){h+=rowhtml(r);});});
+ var ar=SORT>0?'▲':'▼';document.getElementById('da').textContent=SORT&&SKEY=='date'?ar:'⇅';document.getElementById('ta').textContent=SORT&&SKEY=='town'?ar:'⇅';
+ document.getElementById('tb').innerHTML=h;
+ var ug=document.getElementById('ungroup');if(ug)ug.onclick=function(e){e.preventDefault();SORT=0;render(last);};
+
+ document.getElementById('ts').textContent=new Date(d.generated_epoch*1000).toLocaleString([], {dateStyle:'medium',timeStyle:'medium'});
+ tick();}
+function tick(){if(!last)return;var a=Math.round(Date.now()/1000-last.generated_epoch),m=Math.floor(a/60);
+ document.getElementById('age').textContent=(m?m+' min ':'')+(a%60)+' s ago';
+ var s=document.getElementById('stale');
+ if(a>180){s.style.display='block';s.textContent='Status data is '+m+' min old — the page is still checking, but no newer status has arrived yet.';}else s.style.display='none';}
+window.wilmesStatus=render;
+function sortBy(k){SORT=(SKEY==k&&SORT>0)?-1:1;SKEY=k;if(last)render(last);}
+document.getElementById('dh').onclick=function(){sortBy('date');};
+document.getElementById('th').onclick=function(){sortBy('town');};
+function viaScript(){var old=document.getElementById('sjs');if(old)old.remove();
+ var e=document.createElement('script');e.id='sjs';e.src='status.js?t='+Date.now();document.body.appendChild(e);}
+function poll(){var u=SRC||'status.json';
+ if(location.protocol==='file:'&&!SRC){viaScript();return;}
+ fetch(u+(u.indexOf('?')<0?'?':'&')+'t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw r.status;return r.json()}).then(render).catch(function(){if(!SRC)viaScript();});}
+poll();setInterval(poll,POLL);setInterval(tick,1000);
+var LIVE='http://grokbot-box.taileabb91.ts.net/status.js';
+function rfDone(ok){var b=document.getElementById('rf'),m=document.getElementById('rfm');b.disabled=false;
+ m.textContent=ok?'Refreshed at '+new Date().toLocaleTimeString():'Could not reach the server; showing the last saved copy.';}
+document.getElementById('rf').onclick=function(){var b=this;b.disabled=true;document.getElementById('rfm').textContent='Refreshing…';
+ if(location.protocol==='file:'&&!SRC){var old=document.getElementById('sjs');if(old)old.remove();
+  var e=document.createElement('script');e.id='sjs';e.src=LIVE+'?t='+Date.now();
+  e.onload=function(){rfDone(true)};e.onerror=function(){viaScript();rfDone(false)};document.body.appendChild(e);return;}
+ var u=SRC||'status.json';fetch(u+(u.indexOf('?')<0?'?':'&')+'t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw r.status;return r.json()}).then(function(d){render(d);rfDone(true)}).catch(function(){rfDone(false)});};
+</script></div>
+<div id="tab-goals" hidden>
+<h1>Goals</h1>
+<ol><li class="top"><span class="gt">A broader public search site at oldparishrecords.com, covering more than Lank.</span> <span class="d">Set 11 Sep 2026</span><ul class="sg"><li class="sub3"><span class="gt">Creating and then later improving the structure and layout of the site.</span> <span class="d">Set 29 Sep 2026</span><ul class="sg sg2"><li class="sub4"><span class="gt">Add a parish filter to search and review the design with Parish Designer.</span></li></ul></li><li class="sub3"><span class="gt">Defining and improving the structure of the data that drives the site.</span> <span class="d">Set 29 Sep 2026</span><ul class="sg sg2"><li class="sub4"><span class="gt">Gather samples of the data. The particular records we choose to transcribe are part of defining what data goes into the site.</span> <span class="d">Set 29 Sep 2026</span></li><li class="sub4"><span class="gt">Every record carries an expanded Latin version that's searchable, and research on the Veit line begins.</span> <span class="d">Set 25 Sep 2026</span><ul class="sg sg3"><li>Confirm that Site Host applied the expanded Latin database change.</li><li>Backfill expanded Latin on the Lank KB 1000 baptisms.</li><li>Make expanded Latin searchable on the site.</li><li>Veit line: get the Veit and Scholz marriage from book 178-8 through Fr. Mróz at the Świdnica archive.</li><li>Veit line: request the 1827–1860 baptism books at the Wrocław archive.</li></ul></li><li class="sub4"><span class="gt">Find every child of Caspar Anton Wilmes and Anna Catharina Elisabeth Holle at Schallern number 12, from June 1819 through 1832, and check the burial books for infant deaths.</span> <span class="d">Set 27 Sep 2026</span><ul class="sg sg2"><li>Search the Horn baptisms from June 1819 through 1832 for children at Schallern No. 12.</li><li>Transcribe and lock each baptism found.</li><li>Check the Horn burials for any of these children dying young.</li><li>Add each child to the family group on the dashboard, with page links.</li></ul></li></ul></li><li class="sub3"><span class="gt">A process for adding new books to the site.</span> <span class="d">Set 29 Sep 2026</span><ul class="sg sg2"><li class="sub4"><span class="gt">Transcribe every register type for Lank, not just baptisms and marriages.</span> <span class="d">Set 10 Sep 2026</span><ul class="sg sg2"><li>Inventory the Lank books on Matricula and list the register types that have no transcriber yet.</li><li>Set up a Stage A and Stage B template for each remaining register type, with Schema Steward.</li><li>Assign each new register type to a transcriber.</li><li>Proofread and lock the first pages of each new register type.</li></ul></li><li class="sub4"><span class="gt">For each book, transcribe as much as possible and organize it so it searches well.</span> <span class="d">Set 13 Sep 2026</span><ul class="sg sg2"><li>Finish the page layout (Page Structure) for every image in the book.</li><li>Cut and lock the entry crops for every page.</li><li>Complete Stage A transcription for every entry.</li><li>Complete Stage B structured records for every entry.</li><li>Load the records into search, each with its page link and citation.</li><li class="sub4"><span class="gt">Human-check four more leaves before letting the segmenter work with less supervision.</span> <span class="d">Set 13 Sep 2026</span><ul class="sg sg3"><li>Pick four representative leaves, including a hard one.</li><li>Review and lock the segmenter's crops on each leaf.</li><li>Note the corrections needed and turn them into segmenter rules.</li><li>Decide how much review later leaves need.</li></ul></li></ul></li></ul></li></ul></li></ol>
+</div>
+<div id="tab-features" hidden>
+<div id="flist"><h1>These are features for the oldparishrecords.com site.</h1>
+<ul id="features-list" style="list-style:none;padding-left:0;line-height:1.6;max-width:820px"><li data-f="Display a person." style="margin-bottom:10px;font-weight:600"><span class="fname">Display a person.</span><ul class="fsub"><li data-f="Display a record for adding a source to ancestry dot com." data-mode="ancestry" data-tpl="Display a person."><span class="fname">Display a record for adding a source to ancestry dot com.</span></li><li data-f="Display a source record for familysearch dot com." data-mode="fs" data-tpl="Display a person."><span class="fname">Display a source record for familysearch dot com.</span></li></ul></li><li data-f="Display birth record." style="margin-bottom:10px;font-weight:600"><span class="fname">Display birth record.</span></li><li data-f="Display burial record." style="margin-bottom:10px;font-weight:600"><span class="fname">Display burial record.</span></li><li data-f="Display baptismal record." style="margin-bottom:10px;font-weight:600"><span class="fname">Display baptismal record.</span></li><li data-f="Display marriage record." style="margin-bottom:10px;font-weight:600"><span class="fname">Display marriage record.</span></li><li data-f="Display related persons." style="margin-bottom:10px;font-weight:600"><span class="fname">Display related persons.</span></li></ul></div>
+<div id="fdetail" hidden></div>
+</div>
+<script>(function(){function show(t){document.getElementById('tab-dash').hidden=t!=='dash';document.getElementById('tab-goals').hidden=t!=='goals';document.getElementById('tab-features').hidden=t!=='features';document.querySelectorAll('nav.tabs a').forEach(function(a){a.classList.toggle('on',a.dataset.t===t)});}
+function fromHash(){var h=location.hash;show(h==='#goals'?'goals':h.indexOf('#features')===0?'features':'dash')}
+document.querySelectorAll('nav.tabs a').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();history.replaceState(null,'',a.getAttribute('href'));show(a.dataset.t)})});
+window.addEventListener('hashchange',fromHash);fromHash();})();</script>
+<script>(function(){document.querySelectorAll('#tab-goals li').forEach(function(li){var ul=null;for(var i=0;i<li.children.length;i++){if(li.children[i].tagName==='UL'){ul=li.children[i];break}}if(!ul)return;var b=document.createElement('button');b.className='gtog';b.type='button';b.textContent='\u25BE';b.title='Collapse';b.setAttribute('aria-expanded','true');b.onclick=function(){var h=!ul.hidden;ul.hidden=h;b.textContent=h?'\u25B8':'\u25BE';b.title=h?'Expand':'Collapse';b.setAttribute('aria-expanded',String(!h))};var gt=li.querySelector(':scope > .gt');li.insertBefore(b,gt||li.firstChild)})})();</script><script>(function(){
+var T={'Display a person.':{sh:'event',ev:'any event record for the person (baptism, marriage, burial)',de:'Taufen / Trauungen / Sterbefälle'},
+'Display birth record.':{ev:'birth (in Catholic registers the birth is usually recorded in the baptism entry)',de:'Taufen (births and baptisms)'},
+'Display burial record.':{ev:'death and burial',de:'Sterbefälle / Beerdigungen'},
+'Display baptismal record.':{ev:'baptism',de:'Taufen'},
+'Display marriage record.':{ev:'marriage',de:'Trauungen'},
+'Display related persons.':{sh:'event',ev:'the record that names the related person (parent, spouse, godparent, witness)',de:'Taufen / Trauungen / Sterbefälle'}};
+function slug(t){return t.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}
+function esc(x){return String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+function tbl(title,rows){var h='<h3>'+title+'</h3><table><tr><th>Field</th><th>What goes here for this feature</th></tr>';rows.forEach(function(r){h+='<tr><td class="fn">'+esc(r[0])+(r[2]?'<span class="req">REQUIRED</span>':'')+'</td><td>'+esc(r[1])+'</td></tr>'});return h+'</table>'}
+function anc(f,t){return '<p class="note">Ancestry.com, checked against the live forms on 29 Sep 2026. Adding a source to a fact opens a quick dialog with two tabs, \u201cCreate a new source\u201d and \u201cSelect existing source\u201d. \u201cSave and add advanced details\u201d (or editing later) opens the full citation, source and repository forms.</p>'+
+tbl('Quick add-source dialog',[['Source title','<Parish>, Kirchenbuch '+t.de+', <years>. Optional on this form.'],['Citation details','Book signature, image, page and entry number (e.g. KB013-01-S, image S_0036, p. 36, no. 59). The Save buttons stay disabled until this is filled.',1],['Citation web address','Matricula link to the exact page']])+
+tbl('Citation (full form)',[['Details','Book signature, image, page and entry number',1],['Web address','Matricula link to the exact page'],['Transcription of text','Our diplomatic transcription of the entry'],['Other information','English translation; why this entry is this person; uncertain readings'],['Date','Date of the '+(t.sh||t.ev.split(' (')[0])+' as written in the record'],['Source title','Links the citation to its source (choose the source below)']])+
+'<p class="note">Media is a separate tab on the citation (\u201cAdd media to source\u201d), not a field. Use it for a crop of the entry.</p>'+
+tbl('Source',[['Source title','<Parish>, Kirchenbuch '+t.de+', <years> (e.g. Warstein St. Pankratius, Kirchenbuch Sterbefälle)',1],['Author','Katholische Kirche <Parish> (Catholic Church)'],['Publisher','Matricula Online (ICARUS)'],['Publisher location','Vienna, Austria (Matricula) or the archive city'],['Call number','Archive book signature (e.g. KB013-01-S)'],['Publication date','Leave blank, or the date the scans were put online'],['REFN','Optional reference number, e.g. our book code'],['Note','Record type: '+t.ev+'. Diocese and archive holding the book.'],['Repository name','Choose or type the archive (see below)']])+
+tbl('Repository',[['Name','Archive holding the book (e.g. Erzbistumsarchiv Paderborn)',1],['Address','Archive street address'],['Phone number','Archive phone'],['Email','Archive email'],['Call number','Optional; the archive\u2019s own shelf mark'],['REFN','Optional reference number'],['Note','Matricula archive code (e.g. DE_EBAP)']])}
+function fs(f,t){var ev=(t.sh||t.ev.split(' (')[0]);return '<p class="note">FamilySearch, checked against the live forms on 29 Sep 2026. Create a source from the Source Box (\u201cCreate Source\u201d), or on a person\u2019s Sources tab choose \u201c+ Add Source\u201d, then \u201cAdd New Source\u201d or \u201cAttach From Source Box\u201d.</p>'+
+tbl('Create Source',[['Event Date','Date of the '+ev+' as written in the record (the event date, not the date you looked it up)'],['Source Title','<Name>, '+ev+' <date>, <Parish>. Save stays disabled until this is filled.',1],['Source Type','Choose \u201cWeb Page URL\u201d (the default)'],['Web Page (Link to the Record)','Matricula link to the exact page'],['Where The Record Is Found (Citation)','Katholische Kirche <Parish>, Kirchenbuch '+t.de+', <call number>, image <n>, p. <page>, no. <entry>; Matricula Online, <archive>'],['Describe The Record (Notes)','Our transcription of the entry (diplomatic and English)']])+
+tbl('Extra fields when adding from a person\u2019s page',[['Reason to Attach Source','Why this entry is this person (names, place, dates that match). Optional.'],['Vital Tags','Toggle the facts this source supports: Name, Sex, Birth, Christening, Death, Burial (for this feature: '+ev+')'],['Add Source to My Source Box','Ticked by default; leave it ticked']])+
+tbl('Attach From Source Box',[['Reason to Attach Source','Why this entry is this person. Optional; this form has no tags.']])+
+'<p class="note">There is no folder field on these forms. Folders exist only for organizing the Source Box (My Folders, Move).</p>'}
+var list=document.getElementById('features-list'),fl=document.getElementById('flist'),fd=document.getElementById('fdetail'),map={};
+var meta={};list.querySelectorAll('li[data-f]').forEach(function(li){var t=li.dataset.f,s=slug(t);map[s]=t;meta[t]={mode:li.dataset.mode,tpl:li.dataset.tpl};var sp=li.querySelector(':scope > .fname');sp.innerHTML='<a class="flink" href="#features/'+s+'">'+esc(t)+'</a>'});
+var mode=localStorage.getItem('opr-src-mode')||'ancestry';
+function render(){var h=location.hash;if(h.indexOf('#features/')!==0){fl.hidden=false;fd.hidden=true;return}
+var s=h.slice(10),f=map[s];if(!f){fl.hidden=false;fd.hidden=true;return}var m=meta[f]||{};var t=T[f]||T[m.tpl]||{ev:'record',de:'<record type>'};if(m.mode&&location.hash!==render.last){mode=m.mode}render.last=location.hash;
+fd.innerHTML='<a class="back" href="#features">\u2190 All site features</a><h2>'+esc(f)+'</h2><div class="sw"><button data-m="ancestry">Ancestry.com</button><button data-m="fs">FamilySearch</button></div><div id="fbody"></div>';
+function draw(){fd.querySelectorAll('.sw button').forEach(function(b){b.classList.toggle('on',b.dataset.m===mode)});document.getElementById('fbody').innerHTML=mode==='fs'?fs(f,t):anc(f,t)}
+fd.querySelectorAll('.sw button').forEach(function(b){b.onclick=function(){mode=b.dataset.m;localStorage.setItem('opr-src-mode',mode);draw()}});draw();fl.hidden=true;fd.hidden=false;window.scrollTo(0,0)}
+list.addEventListener('click',function(e){var a=e.target.closest('a.flink');if(a){e.preventDefault();location.hash=a.getAttribute('href')}});
+fd.addEventListener('click',function(e){var a=e.target.closest('a.back');if(a){e.preventDefault();location.hash='#features'}});
+window.addEventListener('hashchange',render);render();})();</script>
+</body></html>

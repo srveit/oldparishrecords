@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oldparishrecords.com/schemas/opr-place-name/v1.0.0.json",
+  "schema_id": "opr-place-name",
+  "version": "1.0.0",
+  "title": "Time-bounded place name",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "place_id",
+    "name",
+    "name_type"
+  ],
+  "properties": {
+    "place_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "description": "Diplomatic or normalized historical spelling for this period"
+    },
+    "name_type": {
+      "type": "string",
+      "enum": [
+        "official",
+        "common",
+        "latin",
+        "exonym",
+        "variant",
+        "register_form",
+        "other"
+      ]
+    },
+    "lang": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "BCP-47-ish, e.g. de, la, nl"
+    },
+    "date_from": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "ISO YYYY-MM-DD or YYYY; null = unknown start"
+    },
+    "date_to": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "ISO; null = open-ended / still current"
+    },
+    "date_from_precision": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "day",
+        "month",
+        "year",
+        "decade",
+        "century",
+        null
+      ]
+    },
+    "date_to_precision": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "day",
+        "month",
+        "year",
+        "decade",
+        "century",
+        null
+      ]
+    },
+    "uncertain_end": {
+      "type": "boolean",
+      "default": false
+    },
+    "notes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sources": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

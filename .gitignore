@@ -1,0 +1,53 @@
+# Backups / editor leftovers
+*.bak*
+*.box-orig.bak*
+*~
+*.swp
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+# Runtime
+*.log
+*.pid
+out/
+_selftest/
+_approve_backups/
+notify_queue*.jsonl
+notify_queue_handled.json
+auto_transcribe_sent.json
+overrides.json
+records.json
+matricula_pg.json
+# Data (never commit records, manifests, crops, stage outputs, images, dumps)
+manifest.jsonl
+*.diplomatic.json
+stageA/
+stageB/
+stage0/
+stage0_work/
+entries/
+*.csv
+*.csv.gz
+*.dump
+*.sql.gz
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.webp
+# Secrets
+.env
+.env.*
+*.htpasswd
+htpasswd
+*basicauth*
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+box-secrets.json
+host-secrets.json
+tailscaled.state

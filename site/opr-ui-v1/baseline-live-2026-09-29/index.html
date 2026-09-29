@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Old Parish Records</title>
+  <meta name="description" content="Read-only search over parish register transcriptions.">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <main class="page">
+      <header>
+        <p class="eyebrow">Parish registers</p>
+        <h1>Old Parish Records</h1>
+        <p class="lede">Read-only search over staging transcriptions. The database is not exposed.</p>
+      </header>
+
+      <noscript>
+        <p class="noscript">JavaScript is off, so Search opens the JSON API directly. Add query fields in the URL, or enable JavaScript for card results.</p>
+      </noscript>
+
+      <form id="search" method="get" action="/search" role="search">
+        <div class="fields">
+          <label class="field-q">Anywhere
+            <input name="q" type="search" placeholder="phrase across fields" autocomplete="off" enterkeyhint="search">
+          </label>
+          <label>Name
+            <input name="name" type="search" placeholder="surname or given" autocomplete="off">
+          </label>
+          <label>Place
+            <input name="place" type="search" placeholder="village / parish" autocomplete="off">
+          </label>
+          <label>Date
+            <input name="date" type="search" placeholder="year or date" inputmode="numeric" autocomplete="off">
+          </label>
+          <label>Kind
+            <select name="kind">
+              <option value="">Any</option>
+              <option value="baptism">Baptism</option>
+              <option value="marriage">Marriage</option>
+              <option value="death">Death</option>
+              <option value="communion">Communion</option>
+              <option value="histnotes">Historical notes</option>
+            </select>
+          </label>
+        </div>
+        <div class="actions">
+          <button type="submit">Search</button>
+          <button type="reset" class="linkish">Clear</button>
+        </div>
+      </form>
+
+      <p id="status" class="status" aria-live="polite">Loading collection status…</p>
+      <div id="results" aria-live="polite"></div>
+
+      <footer>
+        <p id="counts">Staging collection · read-only</p>
+      </footer>
+    </main>
+  </div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

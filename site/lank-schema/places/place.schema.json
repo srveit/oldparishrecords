@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oldparishrecords.com/schemas/opr-place/v1.0.0.json",
+  "schema_id": "opr-place",
+  "version": "1.0.0",
+  "title": "Old Parish Records — place / town identity (gazetteer)",
+  "description": "Stable place identity independent of any single name or jurisdiction. Names and administrative divisions are time-bounded child records. Distinct from parishes: a place (hamlet/village/town) may belong to different parishes or civil units over time.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "place_id",
+    "place_kind"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "opr-place"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.0\\.\\d+$"
+    },
+    "place_id": {
+      "type": "string",
+      "description": "Stable opaque-or-slug id for the place identity, e.g. place:ilverich or pl_ilverich. Never changes when the name changes."
+    },
+    "place_kind": {
+      "type": "string",
+      "enum": [
+        "hamlet",
+        "village",
+        "town",
+        "city",
+        "farm",
+        "district",
+        "other",
+        "uncertain"
+      ],
+      "description": "Coarse settlement type."
+    },
+    "preferred_label": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Modern or editorial default label for UI when no as-of date (e.g. Ilverich)."
+    },
+    "centroid": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lat": {
+          "type": "number"
+        },
+        "lon": {
+          "type": "number"
+        }
+      }
+    },
+    "external_ids": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Optional modern authority ids",
+      "additionalProperties": false,
+      "properties": {
+        "wikidata": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "osm_relation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "geonames": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gnd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "notes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sources": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "description": "Citations / URLs for the identity itself"
+    }
+  }
+}

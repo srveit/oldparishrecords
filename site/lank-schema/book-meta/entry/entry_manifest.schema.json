@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oldparishrecords.com/schemas/opr-entry-manifest/v1.2.0.json",
+  "schema_id": "opr-entry-manifest",
+  "version": "1.2.0",
+  "title": "Entry Segmenter manifest row",
+  "description": "One crop + metadata per segmented block. crop_image is required (human-facing all-ink view). Parent full page is source_image and/or lank.scans via scan+face.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "entry_id",
+    "parish_slug",
+    "archival_id",
+    "scan",
+    "page",
+    "entry",
+    "entry_kind",
+    "crop_image"
+  ],
+  "properties": {
+    "entry_id": {
+      "type": "string"
+    },
+    "parish_slug": {
+      "type": "string",
+      "description": "FK to parish; replaces parish_name/place on new manifests"
+    },
+    "archival_id": {
+      "type": "string"
+    },
+    "register_type": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional cache from book; prefer join"
+    },
+    "scan": {
+      "type": "string"
+    },
+    "page": {
+      "type": "string"
+    },
+    "face": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "left",
+        "right",
+        "single",
+        null
+      ]
+    },
+    "entry": {
+      "type": "integer"
+    },
+    "entry_kind": {
+      "type": "string",
+      "enum": [
+        "baptism",
+        "marriage",
+        "death",
+        "communion",
+        "note",
+        "index",
+        "title",
+        "blank",
+        "other",
+        "uncertain"
+      ],
+      "description": "Stephen taxonomy (+ register-specific kinds for non-Taufen volumes)"
+    },
+    "matricula_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_image": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Full face/spread path used to cut the crop — parent page image."
+    },
+    "crop_image": {
+      "type": "string",
+      "description": "Required path/key to segment crop (all ink for this entry). Maps to entry_images.crop_image_path."
+    },
+    "bbox": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "number"
+      }
+    },
+    "polygon": {
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "mask_fill": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "paper",
+        "white",
+        null
+      ]
+    },
+    "continuation_from_prior_leaf": {
+      "type": "boolean",
+      "default": false
+    },
+    "notes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "parish_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "DEPRECATED denorm"
+    },
+    "parish_place": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "DEPRECATED denorm"
+    },
+    "crop_image_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional served URL for the crop (CDN/object store)."
+    },
+    "source_image_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional URL for the full face/spread."
+    },
+    "scan_image_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional opaque ref to lank.scans row / object id for 'view full page'."
+    }
+  }
+}

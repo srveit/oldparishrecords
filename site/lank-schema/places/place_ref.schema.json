@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oldparishrecords.com/schemas/opr-place-ref/v1.0.0.json",
+  "schema_id": "opr-place-ref",
+  "version": "1.0.0",
+  "title": "How register residence fields point at a place",
+  "description": "CSV keeps diplomatic residence text. Optional structured ref adds place_id + as_of_date (usually the event date) so UI can resolve historical name/jurisdiction.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "residence_as_written"
+  ],
+  "properties": {
+    "residence_as_written": {
+      "type": "string",
+      "description": "Diplomatic CSV cell (ex Lank, Ilverich, Lanck, …)"
+    },
+    "place_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Resolved gazetteer id; null until matched"
+    },
+    "as_of_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Event date ISO used to pick name/admin rows (baptism_date, marriage_date, …)"
+    },
+    "match_confidence": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "certain",
+        "probable",
+        "possible",
+        "unmatched",
+        null
+      ]
+    },
+    "notes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

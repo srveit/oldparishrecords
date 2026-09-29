@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""Serves out/ on :8080 and stores Site features descriptions at /api/features (GET/POST JSON)."""
+import http.server, json, os, threading
+D = os.path.dirname(os.path.abspath(__file__)); OUT = os.path.join(D, 'out'); F = os.path.join(D, 'features_desc.json')
+lock = threading.Lock()
+def load():
+    try: return json.load(open(F))
+    except Exception: return {}
+class H(http.server.SimpleHTTPRequestHandler):
+    def __init__(s, *a, **k): super().__init__(*a, directory=OUT, **k)
+    def cors(s):
+        s.send_header('Access-Control-Allow-Origin', '*'); s.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'); s.send_header('Access-Control-Allow-Headers', 'Content-Type')
+    def js(s, obj, code=200):
+        b = json.dumps(obj, ensure_ascii=False).encode(); s.send_response(code); s.cors()
+        s.send_header('Content-Type', 'application/json; charset=utf-8'); s.send_header('Cache-Control', 'no-store'); s.send_header('Content-Length', str(len(b))); s.end_headers(); s.wfile.write(b)
+    def do_OPTIONS(s): s.send_response(204); s.cors(); s.end_headers()
+    def do_GET(s):
+        if s.path.split('?')[0] == '/api/features': return s.js(load())
+        return super().do_GET()
+    def do_POST(s):
+        if s.path.split('?')[0] != '/api/features': return s.js({'error': 'not found'}, 404)
+        try:
+            n = int(s.headers.get('Content-Length', 0)); body = json.loads(s.rfile.read(min(n, 200000)) or b'{}')
+            key = str(body['feature'])[:300]; text = str(body.get('description', ''))[:20000]
+        except Exception: return s.js({'error': 'bad request'}, 400)
+        with lock:
+            d = load()
+            if text.strip(): d[key] = text
+            else: d.pop(key, None)
+            tmp = F + '.tmp'; json.dump(d, open(tmp, 'w'), ensure_ascii=False, indent=1); os.replace(tmp, F)
+        s.js({'ok': True})
+http.server.ThreadingHTTPServer(('0.0.0.0', 8080), H).serve_forever()

@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oldparishrecords.com/schemas/opr-matricula-parish-meta/v1.0.1.json",
+  "schema_id": "opr-matricula-parish-meta",
+  "version": "1.0.1",
+  "title": "Old Parish Records — parish / place metadata",
+  "description": "Parish-level entity. Natural key: parish_slug (Matricula landing slug). Books reference parish_slug — no embedded parish object.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "parish_slug",
+    "display_name",
+    "name",
+    "place",
+    "diocese_archive",
+    "country"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "opr-matricula-parish-meta"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.0\\.\\d+$",
+      "description": "e.g. 1.0.0"
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Matricula parish landing title, e.g. 'Lank St. Stephanus'."
+    },
+    "name": {
+      "type": "string",
+      "description": "Parish dedication / short name, e.g. 'St. Stephanus'."
+    },
+    "place": {
+      "type": "string",
+      "description": "Locality, e.g. 'Lank (Lank-Latum)'."
+    },
+    "diocese_archive": {
+      "type": "string",
+      "description": "Diocese/archive label, e.g. 'Aachen, rk. Bistum'."
+    },
+    "country": {
+      "type": "string",
+      "description": "Country as on Matricula, e.g. 'Deutschland'."
+    },
+    "history": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Long parish history blurb from Matricula landing."
+    },
+    "matricula": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parish_url"
+      ],
+      "properties": {
+        "parish_url": {
+          "type": "string",
+          "description": "Matricula parish landing URL."
+        },
+        "parish_slug": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "URL slug; must equal top-level parish_slug."
+        },
+        "platform": {
+          "type": "string",
+          "default": "Matricula Online"
+        }
+      }
+    },
+    "links": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "description": "Optional external links (Wikipedia, diocese page, OPR site path, …).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "rel": {
+            "type": "string",
+            "description": "e.g. wikipedia, diocese, opr, other"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "parish_slug": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable public natural key = Matricula parish URL slug (e.g. lank-st-stephanus). Books FK this field."
+    },
+    "parish_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "DEPRECATED alias — use parish_slug. If present, must equal parish_slug."
+    }
+  }
+}

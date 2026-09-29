@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oldparishrecords.com/schemas/opr-place-parish-link/v1.0.0.json",
+  "schema_id": "opr-place-parish-link",
+  "version": "1.0.0",
+  "title": "Time-bounded place ↔ parish association",
+  "description": "Hamlets can move between parishes. parish_slug FK to opr-matricula-parish-meta.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "place_id",
+    "parish_slug",
+    "role"
+  ],
+  "properties": {
+    "place_id": {
+      "type": "string"
+    },
+    "parish_slug": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "in_parish",
+        "filial",
+        "chapel",
+        "burial_in",
+        "registers_in",
+        "other"
+      ],
+      "description": "How the place relates to the parish in this period"
+    },
+    "date_from": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "date_to": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "uncertain_end": {
+      "type": "boolean",
+      "default": false
+    },
+    "notes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sources": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

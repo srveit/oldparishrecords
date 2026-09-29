@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oldparishrecords.com/schemas/opr-place-admin/v1.0.0.json",
+  "schema_id": "opr-place-admin",
+  "version": "1.0.0",
+  "title": "Time-bounded administrative / church jurisdiction membership",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "place_id",
+    "admin_level",
+    "admin_name"
+  ],
+  "properties": {
+    "place_id": {
+      "type": "string"
+    },
+    "admin_level": {
+      "type": "string",
+      "description": "Controlled vocabulary (open+preferred)",
+      "enum": [
+        "herrschaft",
+        "amt",
+        "kreis",
+        "bezirk",
+        "regierungsbezirk",
+        "buergermeisterei",
+        "gemeinde",
+        "stadt",
+        "landkreis",
+        "departement",
+        "arrondissement",
+        "canton",
+        "province",
+        "state",
+        "country",
+        "plz",
+        "diocese_civil",
+        "deanery",
+        "other"
+      ]
+    },
+    "admin_name": {
+      "type": "string"
+    },
+    "admin_name_lang": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "date_from": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "date_to": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "uncertain_end": {
+      "type": "boolean",
+      "default": false
+    },
+    "notes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sources": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

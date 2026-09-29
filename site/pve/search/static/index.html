@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Old Parish Records</title>
+<style>
+ body{font:16px/1.45 system-ui,sans-serif;max-width:52rem;margin:2rem auto;padding:0 1rem;color:#222}
+ input,button{padding:.4rem .55rem;margin:.2rem .35rem .2rem 0}
+ pre{background:#f6f6f4;padding:1rem;overflow:auto;font-size:13px}
+ .hint{color:#555;font-size:.9rem}
+</style>
+</head>
+<body>
+<h1>Old Parish Records</h1>
+<p class="hint">Search parish register transcriptions. JSON APIs at /health and /search stay available.</p>
+<form id="f">
+  <input name="q" placeholder="anywhere" size="24">
+  <input name="name" placeholder="name" size="16">
+  <input name="place" placeholder="place" size="14">
+  <input name="date" placeholder="date/year" size="10">
+  <button>Search</button>
+</form>
+<pre id="out">GET /health</pre>
+<script>
+const out = document.getElementById('out');
+fetch('/health').then(r=>r.json()).then(j=>out.textContent=JSON.stringify(j,null,2));
+document.getElementById('f').onsubmit = async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const p = new URLSearchParams([...fd].filter(([,v]) => v));
+  const r = await fetch('/search?' + p.toString());
+  out.textContent = JSON.stringify(await r.json(), null, 2);
+};
+</script>
+</body>
+</html>

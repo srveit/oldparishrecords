@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oldparishrecords.com/schemas/opr-matricula-book-meta/v1.2.1.json",
+  "schema_id": "opr-matricula-book-meta",
+  "version": "1.2.1",
+  "title": "Old Parish Records — Matricula book / register metadata",
+  "description": "Book/register metadata. Required parish_slug FK to opr-matricula-parish-meta. No embedded parish object (Stephen 2026-09-13). Unique (parish_slug, archival_id).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "parish_slug",
+    "archival_id",
+    "register_type",
+    "date_from",
+    "date_to",
+    "book_title",
+    "source",
+    "access"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "opr-matricula-book-meta",
+      "description": "Stable schema identifier (site-wide)."
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.2\\.\\d+$",
+      "description": "e.g. 1.2.1"
+    },
+    "archival_id": {
+      "type": "string",
+      "description": "Matricula Archival identifier / sidebar ID, e.g. 'KB 1000', 'KB 999_3'."
+    },
+    "register_type": {
+      "type": "string",
+      "description": "Matricula Register type / Type. Observed: Taufen, Trauungen, Sterbefälle, Sterben, Erstkommunion, historische Notizen, …"
+    },
+    "date_from": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Coverage start ISO YYYY-MM-DD (Matricula Date from). Null if unknown."
+    },
+    "date_to": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Coverage end ISO YYYY-MM-DD (Matricula Date to). Null if unknown. May follow ink beyond Matricula catalogue when documented in notes."
+    },
+    "date_from_raw": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional Matricula display string if not clean ISO."
+    },
+    "date_to_raw": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional Matricula display string if not clean ISO."
+    },
+    "book_title": {
+      "type": "string",
+      "description": "English display title for Old Parish Records UI."
+    },
+    "book_title_de": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "German display title."
+    },
+    "comment": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Matricula Comment column (e.g. Mischbuch)."
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Matricula Description / Inhalt field (may include 'enthält…', section lists, or 'gesperrt bis DD.MM.YYYY'). Store raw Matricula text."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "url",
+        "book_start_url"
+      ],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "description": "Usually 'Matricula Online'."
+        },
+        "url": {
+          "type": "string",
+          "description": "Canonical book URL (often equals book_start_url)."
+        },
+        "book_start_url": {
+          "type": "string",
+          "description": "Viewer URL for book start (?pg=1)."
+        },
+        "first_page_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Viewer URL of first useful content page for transcription (null if gesperrt)."
+        },
+        "first_page_note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "How first_page_url maps to scan/page."
+        },
+        "scan_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Number of Matricula scans in this book/section."
+        },
+        "scan_label_range": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "e.g. 'KB_1000-000 … KB_1000-322'."
+        },
+        "scan_label_skips": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional list of missing labels (e.g. ['084','085'] for KB 1052_9)."
+        },
+        "image_download": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Primary hosted-image pattern + required headers.",
+          "additionalProperties": false,
+          "properties": {
+            "url_pattern": {
+              "type": "string",
+              "description": "HTTPS pattern with {NNN} scan placeholder."
+            },
+            "required_headers": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Usually Referer: https://data.matricula-online.eu/"
+            }
+          }
+        },
+        "image_download_alt": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "description": "Additional patterns (e.g. alpha-register folder) with optional scan range notes.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "url_pattern"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "url_pattern": {
+                "type": "string"
+              },
+              "scan_label_range": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "required_headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "load_staging"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "gesperrt",
+            "stub"
+          ],
+          "description": "open=transcribe/load; gesperrt=legal lock meta-only; stub=placeholder."
+        },
+        "gesperrt_until": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "ISO YYYY-MM-DD parsed from Description 'gesperrt bis DD.MM.YYYY'. Null when open."
+        },
+        "gesperrt_until_raw": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Raw Matricula lock phrase, e.g. 'gesperrt bis 31.12.2044'."
+        },
+        "load_staging": {
+          "type": "boolean",
+          "description": "When false, Site Host must not import entry CSV/staging rows for this volume."
+        }
+      }
+    },
+    "csv_schema_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Path or id of locked entry CSV schema for this register (relative to book workspace or schema pack)."
+    },
+    "list_types": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "description": "For multi-structure books (e.g. historische Notizen): locked list_type ids."
+    },
+    "notes": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Project notes (chronology quirks, dual-catalogue, etc.)."
+    },
+    "legacy": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Optional mapping aids from v1.0 flat instances.",
+      "additionalProperties": true
+    },
+    "parish_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "DEPRECATED — use parish_slug."
+    },
+    "parish_snapshot": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "DEPRECATED for storage — optional denormalized parish cache for offline bags only. Canonical parish data is the parish entity.",
+      "additionalProperties": true
+    },
+    "parish_slug": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required FK → parish.parish_slug (e.g. lank-st-stephanus)."
+    }
+  }
+}

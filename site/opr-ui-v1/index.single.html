@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Old Parish Records</title>
+  <meta name="description" content="Read-only search over parish register transcriptions.">
+  <style>
+    :root {
+      --paper: #f4efe4;
+      --paper-2: #ebe4d4;
+      --frame: #2a241c;
+      --ink: #1c1814;
+      --ink-soft: #5a5248;
+      --rule: #cbbfa8;
+      --card: #fbf8f0;
+      --wax: #8b2e2e;
+      --wax-hover: #6f2424;
+      --focus: #3d5a4c;
+      --ok: #2f5d3a;
+      --kind-baptism: #3d5a4c;
+      --kind-marriage: #6b4a2e;
+      --kind-death: #4a4450;
+      --kind-communion: #3a4f6b;
+      --kind-histnotes: #6b5a3a;
+      --shadow: 0 1px 0 rgba(42, 36, 28, 0.06), 0 8px 24px rgba(42, 36, 28, 0.08);
+      --radius: 10px;
+      --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+      --font-sans: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { color-scheme: light; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font: 16px/1.5 var(--font-sans);
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 600px at 50% -10%, #4a3f32 0%, var(--frame) 55%),
+        var(--frame);
+    }
+
+    .shell {
+      max-width: 52rem;
+      margin: 0 auto;
+      padding: 1.25rem 1rem 2.5rem;
+    }
+
+    .page {
+      background: linear-gradient(180deg, var(--paper) 0%, var(--paper-2) 100%);
+      border: 1px solid #a89878;
+      border-radius: 14px;
+      box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.55);
+      padding: 1.5rem 1.35rem 1.75rem;
+    }
+
+    @media (min-width: 640px) {
+      .shell { padding: 2rem 1.25rem 3rem; }
+      .page { padding: 2rem 2rem 2.25rem; }
+    }
+
+    header {
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .eyebrow {
+      margin: 0 0 0.35rem;
+      font-size: 0.75rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+    }
+
+    h1 {
+      margin: 0;
+      font-family: var(--font-serif);
+      font-weight: 600;
+      font-size: clamp(1.65rem, 4vw, 2.15rem);
+      line-height: 1.2;
+      letter-spacing: -0.01em;
+    }
+
+    .lede {
+      margin: 0.55rem 0 0;
+      color: var(--ink-soft);
+      max-width: 38rem;
+    }
+
+    form#search {
+      display: grid;
+      gap: 0.85rem;
+      margin: 0 0 1.25rem;
+    }
+
+    .fields {
+      display: grid;
+      gap: 0.75rem;
+      grid-template-columns: 1fr;
+    }
+
+    @media (min-width: 640px) {
+      .fields {
+        grid-template-columns: 1.3fr 1fr;
+      }
+      .field-q { grid-column: 1 / -1; }
+    }
+
+    @media (min-width: 860px) {
+      .fields {
+        grid-template-columns: 1.4fr 1fr 1fr 0.85fr 0.95fr;
+      }
+      .field-q { grid-column: auto; }
+    }
+
+    label {
+      display: grid;
+      gap: 0.3rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+    }
+
+    input, select, button {
+      font: inherit;
+      color: var(--ink);
+    }
+
+    input, select {
+      width: 100%;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid #b7a88c;
+      border-radius: 8px;
+      background: #fffdf8;
+      box-shadow: inset 0 1px 2px rgba(42, 36, 28, 0.06);
+    }
+
+    input::placeholder { color: #8a8072; }
+    input:focus, select:focus, button:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      align-items: center;
+    }
+
+    button[type="submit"] {
+      appearance: none;
+      border: 1px solid #6a2222;
+      background: linear-gradient(180deg, #9a3a3a, var(--wax));
+      color: #fff8f0;
+      font-weight: 600;
+      padding: 0.6rem 1.1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.2) inset;
+    }
+    button[type="submit"]:hover { background: linear-gradient(180deg, #8a3030, var(--wax-hover)); }
+    button[type="submit"]:active { transform: translateY(1px); }
+
+    button.linkish {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--ink-soft);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer;
+      padding: 0.35rem 0.25rem;
+    }
+
+    .status {
+      min-height: 1.35rem;
+      margin: 0 0 0.85rem;
+      font-size: 0.92rem;
+      color: var(--ink-soft);
+    }
+    .status[data-tone="ok"] { color: var(--ok); }
+    .status[data-tone="warn"] { color: var(--wax); }
+
+    #results {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 0.95rem 1rem 1rem;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.65) inset;
+    }
+
+    .card-top {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem 0.7rem;
+      align-items: center;
+      margin-bottom: 0.45rem;
+    }
+
+    .kind {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #fff;
+      background: var(--kind-histnotes);
+    }
+    .kind[data-kind="baptism"] { background: var(--kind-baptism); }
+    .kind[data-kind="marriage"] { background: var(--kind-marriage); }
+    .kind[data-kind="death"],
+    .kind[data-kind="deaths"] { background: var(--kind-death); }
+    .kind[data-kind="communion"] { background: var(--kind-communion); }
+    .kind[data-kind="histnotes"] { background: var(--kind-histnotes); }
+
+    .meta {
+      color: var(--ink-soft);
+      font-size: 0.9rem;
+    }
+
+    .names {
+      margin: 0.15rem 0 0.4rem;
+      font-family: var(--font-serif);
+      font-size: 1.08rem;
+      line-height: 1.35;
+    }
+
+    .snippet {
+      margin: 0;
+      color: #3a342c;
+      font-size: 0.95rem;
+    }
+
+    .cite {
+      margin-top: 0.55rem;
+      font-size: 0.82rem;
+      color: var(--ink-soft);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .empty, .raw {
+      margin: 0;
+      padding: 1rem;
+      border-radius: var(--radius);
+      border: 1px dashed var(--rule);
+      background: rgba(255,255,255,0.35);
+      color: var(--ink-soft);
+      overflow: auto;
+      font-size: 0.86rem;
+    }
+
+    footer {
+      margin-top: 1.5rem;
+      padding-top: 0.9rem;
+      border-top: 1px solid var(--rule);
+      color: var(--ink-soft);
+      font-size: 0.85rem;
+    }
+
+    footer a { color: inherit; }
+
+    .noscript {
+      margin: 0 0 1rem;
+      padding: 0.7rem 0.85rem;
+      border-radius: 8px;
+      background: #efe6d2;
+      border: 1px solid var(--rule);
+      color: var(--ink-soft);
+      font-size: 0.9rem;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      button[type="submit"]:active { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <main class="page">
+      <header>
+        <p class="eyebrow">Parish registers</p>
+        <h1>Old Parish Records</h1>
+        <p class="lede">Read-only search over staging transcriptions. The database is not exposed.</p>
+      </header>
+
+      <noscript>
+        <p class="noscript">JavaScript is off, so Search opens the JSON API directly. Add query fields in the URL, or enable JavaScript for card results.</p>
+      </noscript>
+
+      <form id="search" method="get" action="/search" role="search">
+        <div class="fields">
+          <label class="field-q">Anywhere
+            <input name="q" type="search" placeholder="phrase across fields" autocomplete="off" enterkeyhint="search">
+          </label>
+          <label>Name
+            <input name="name" type="search" placeholder="surname or given" autocomplete="off">
+          </label>
+          <label>Place
+            <input name="place" type="search" placeholder="village / parish" autocomplete="off">
+          </label>
+          <label>Date
+            <input name="date" type="search" placeholder="year or date" inputmode="numeric" autocomplete="off">
+          </label>
+          <label>Kind
+            <select name="kind">
+              <option value="">Any</option>
+              <option value="baptism">Baptism</option>
+              <option value="marriage">Marriage</option>
+              <option value="death">Death</option>
+              <option value="communion">Communion</option>
+              <option value="histnotes">Historical notes</option>
+            </select>
+          </label>
+        </div>
+        <div class="actions">
+          <button type="submit">Search</button>
+          <button type="reset" class="linkish">Clear</button>
+        </div>
+      </form>
+
+      <p id="status" class="status" aria-live="polite">Loading collection status…</p>
+      <div id="results" aria-live="polite"></div>
+
+      <footer>
+        <p id="counts">Staging collection · read-only</p>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+  (function () {
+    const form = document.getElementById('search');
+    const status = document.getElementById('status');
+    const results = document.getElementById('results');
+    const countsEl = document.getElementById('counts');
+
+    const KIND_LABEL = {
+      baptism: 'Baptism',
+      marriage: 'Marriage',
+      death: 'Death',
+      deaths: 'Death',
+      communion: 'Communion',
+      histnotes: 'Historical notes'
+    };
+
+    function setStatus(text, tone) {
+      status.textContent = text;
+      if (tone) status.dataset.tone = tone;
+      else delete status.dataset.tone;
+    }
+
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function formatCounts(c) {
+      if (!c) return '';
+      const parts = [];
+      if (c.baptisms != null) parts.push(c.baptisms + ' baptisms');
+      if (c.marriages != null) parts.push(c.marriages + ' marriages');
+      if (c.deaths != null) parts.push(c.deaths + ' deaths');
+      if (c.communion != null) parts.push(c.communion + ' communion');
+      if (c.histnotes != null) parts.push(c.histnotes + ' historical notes');
+      return parts.join(' · ');
+    }
+
+    function cite(hit) {
+      const bits = [];
+      if (hit.archival_id) bits.push(hit.archival_id);
+      if (hit.scan != null && hit.scan !== '') bits.push('scan ' + hit.scan);
+      if (hit.page != null && hit.page !== '') bits.push('page ' + hit.page);
+      if (hit.entry != null && hit.entry !== '') bits.push('entry ' + hit.entry);
+      return bits.join(' · ');
+    }
+
+    function renderHits(data) {
+      const hits = (data && data.hits) || [];
+      const n = data && typeof data.count === 'number' ? data.count : hits.length;
+      if (!hits.length) {
+        results.innerHTML = '<p class="empty">No matching entries.</p>';
+        setStatus(n === 0 ? '0 results' : 'No hits returned', 'warn');
+        return;
+      }
+      setStatus(n + (n === 1 ? ' result' : ' results'), 'ok');
+      results.innerHTML = hits.map(function (hit) {
+        const kind = hit.kind || '';
+        const label = KIND_LABEL[kind] || kind || 'Record';
+        const when = hit.date_text ? esc(hit.date_text) : 'Date unknown';
+        const where = hit.place_text ? ' · ' + esc(hit.place_text) : '';
+        const names = hit.names ? esc(hit.names) : '—';
+        const snip = hit.snippet ? esc(hit.snippet) : '';
+        const citation = esc(cite(hit));
+        return (
+          '<article class="card">' +
+            '<div class="card-top">' +
+              '<span class="kind" data-kind="' + esc(kind) + '">' + esc(label) + '</span>' +
+              '<span class="meta">' + when + where + '</span>' +
+            '</div>' +
+            '<h2 class="names">' + names + '</h2>' +
+            (snip ? '<p class="snippet">' + snip + '</p>' : '') +
+            (citation ? '<p class="cite">' + citation + '</p>' : '') +
+          '</article>'
+        );
+      }).join('');
+    }
+
+    async function loadHealth() {
+      try {
+        const r = await fetch('/health');
+        const j = await r.json();
+        const line = formatCounts(j.counts);
+        countsEl.textContent = line
+          ? ('Staging · ' + line + ' · read-only')
+          : 'Staging collection · read-only';
+        setStatus(j.ok ? 'Ready to search' : 'Service reported a problem', j.ok ? 'ok' : 'warn');
+      } catch (e) {
+        countsEl.textContent = 'Staging collection · read-only';
+        setStatus('Could not reach /health', 'warn');
+      }
+    }
+
+    async function runSearch(fd) {
+      const params = new URLSearchParams();
+      for (const [k, v] of fd.entries()) {
+        if (String(v).trim() !== '') params.set(k, String(v).trim());
+      }
+      setStatus('Searching…');
+      results.innerHTML = '';
+      try {
+        const r = await fetch('/search?' + params.toString());
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const j = await r.json();
+        renderHits(j);
+      } catch (e) {
+        setStatus('Search failed', 'warn');
+        results.innerHTML = '<pre class="raw">Search request failed. Try again, or open /search directly.</pre>';
+      }
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      runSearch(new FormData(form));
+    });
+
+    form.addEventListener('reset', function () {
+      setTimeout(function () {
+        results.innerHTML = '';
+        setStatus('Ready to search', 'ok');
+      }, 0);
+    });
+
+    // Hydrate from URL if someone shared /?# or landed with query params on /
+    (function hydrateFromLocation() {
+      const sp = new URLSearchParams(location.search);
+      let any = false;
+      ['q', 'name', 'place', 'date', 'kind'].forEach(function (k) {
+        if (sp.has(k) && form.elements[k]) {
+          form.elements[k].value = sp.get(k);
+          any = true;
+        }
+      });
+      loadHealth().then(function () {
+        if (any) runSearch(new FormData(form));
+      });
+    })();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,843 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oldparishrecords.com/schemas/opr-death-record/v1.1.0.json",
+  "schema_id": "opr-death-record",
+  "version": "1.1.0",
+  "title": "Old Parish Records — Stage B structured death/burial record",
+  "description": "DRAFT 2026-09-21 for Stephen QC. Structured Sterbefälle fields from Stage A diplomatic. Aligns with lank.stg_deaths / death_schema.md (KB 999_4, KB 1009; never KB 1010). Pipeline links + multi-leaf crops mirror opr-baptism-record v1.0.2. Do not invent certainty — keep [?], soft_fields, incomplete. Owner of Stage A/B: Lank Deaths (hybrid pipeline). v1.0.1: adds nullable expanded_latin (2026-09-25). v1.1.0 DRAFT 2026-09-29 (pending Stephen approval): additive nullable shared fields — source_citation, *_identified place objects, period_jurisdiction, person_aliases, vital_status, previous_spouses. Definitions: opr_shared_defs.schema.json (identical copies in $defs).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "stage",
+    "entry_id",
+    "parish_slug",
+    "archival_id",
+    "scan",
+    "page",
+    "entry",
+    "entry_kind",
+    "crop_image",
+    "transcription_latin",
+    "stage_a_status"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "opr-death-record"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.[01]\\.\\d+$",
+      "description": "1.0.x records stay valid under 1.1.x (additive)."
+    },
+    "stage": {
+      "const": "structured",
+      "description": "Stage B output"
+    },
+    "stage_a_status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "soft",
+        "incomplete",
+        "qc_needed",
+        "rejected",
+        "locked"
+      ],
+      "description": "Status from Stage A diplomatic QC"
+    },
+    "stage_b_status": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "draft",
+        "locked",
+        null
+      ],
+      "description": "Stage B lock state (already used by register owners; formalized v1.0.3/1.0.1/1.0.2)."
+    },
+    "stage_b_locked_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "When Stage B was locked (ISO date or date-time)."
+    },
+    "entry_id": {
+      "type": "string",
+      "description": "e.g. KB999_4_s010_p16_e3"
+    },
+    "parish_slug": {
+      "type": "string"
+    },
+    "archival_id": {
+      "type": "string",
+      "description": "KB 999_4 or KB 1009 (never KB 1010 gesperrt)"
+    },
+    "scan": {
+      "type": "string",
+      "description": "Matricula scan digits only (e.g. 010)"
+    },
+    "page": {
+      "type": "string",
+      "description": "Printed face page number"
+    },
+    "entry": {
+      "type": "integer",
+      "description": "1-based per printed face"
+    },
+    "entry_kind": {
+      "const": "death"
+    },
+    "crop_image": {
+      "type": "string",
+      "description": "Primary segment crop. Required. = crops[0] when crops set."
+    },
+    "crops": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "description": "Ordered crop paths for multi-leaf spans. Index 0 = crop_image.",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "crop_image_continued": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional second leaf (= crops[1]) for exactly two leaves."
+    },
+    "diplomatic_path": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Primary Stage A *.diplomatic.json (= diplomatic_paths[0])."
+    },
+    "diplomatic_paths": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "description": "Ordered Stage A paths parallel to crops[].",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "diplomatic_text": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional embed of Stage A diplomatic_text"
+    },
+    "source_citation": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/source_citation"
+        }
+      ],
+      "description": "Source citation: Matricula image-page permalink + human-readable citation + structured parts. Nullable; existing records have none yet."
+    },
+    "death_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Prefer ISO YYYY-MM-DD when clear (locked death_schema). Partial YYYY-MM-?? / YYYY-??-?? or as-written + [?] when soft. From obiit / Annus et Dies obitus. Blank if only burial date readable."
+    },
+    "burial_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "ISO/partial/[?] same rules. From sepultus/sepulta/sep. est. Blank when only death/obitus date given."
+    },
+    "deceased_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Diplomatic personal name(s); keep abbreviations + [?]. Unnamed infants: descriptive Latin in this field (e.g. infantulus [?])."
+    },
+    "deceased_sex": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "M",
+        "F",
+        "?",
+        null
+      ],
+      "description": "From filius/filia, sepultus/sepulta, viduus/vidua, given name"
+    },
+    "age": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "As written / compact (68, 1 anni, 9 mensium, …). Blank if absent."
+    },
+    "status": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Latin/German status as written (viduus, filia, infantulus, …). Never invent 'single'. Never put gh. here."
+    },
+    "spouse_or_parents": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Spouse or parent pair as given. Prefer parents for children, spouse for adults. gh. Buscher → spouse surname here; note gh. in notes."
+    },
+    "spouse_or_parents_vital_status": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/vital_status"
+        }
+      ],
+      "description": "Spouse (or parents) named in spouse_or_parents, e.g. relicta … quondam / gh. + selig stated dead/alive at the event (status + words as written, e.g. defunctus, Ffti, selig)."
+    },
+    "previous_spouses": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/previous_spouse"
+      },
+      "description": "Earlier spouse(s) of the deceased when the entry names them (e.g. vidua quondam X). The current/last spouse stays in spouse_or_parents."
+    },
+    "residence": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Place after ex/in as written (Lank, Stratum, Ilverich, …). Single string for now (no town/place split unless Stephen asks)."
+    },
+    "residence_identified": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/place_identification"
+        }
+      ],
+      "description": "Residence: as written vs identified gazetteer place (+ match_confidence). The string field stays the diplomatic value."
+    },
+    "cause": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Cause when stated; usually blank in early Latin."
+    },
+    "priest": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Officiant when named. Expand Wilh: → Wilhelmus in this field only if house style matches baptisms; keep diplomatic in transcription_latin."
+    },
+    "burial_place": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Only if distinct from default parish churchyard. Do not invent default Lank."
+    },
+    "burial_place_identified": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/place_identification"
+        }
+      ],
+      "description": "Burial place (only when burial_place is set): as written vs identified gazetteer place (+ match_confidence). The string field stays the diplomatic value."
+    },
+    "period_jurisdiction": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/period_jurisdiction"
+        }
+      ],
+      "description": "Historical territory / Amt / diocese at the event date. Reference the temporal gazetteer (source=gazetteer, place_id + as_of_date); editorial snapshot only for places not yet in the gazetteer."
+    },
+    "person_aliases": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/person_aliases",
+          "propertyNames": {
+            "enum": [
+              "deceased_name",
+              "spouse_or_parents",
+              "priest"
+            ]
+          }
+        }
+      ],
+      "description": "Aliases (dictus / genannt / vulgo / condictus …) per person field; keys limited to this record's person fields. The person field keeps the primary name; the alias goes here (optionally also the legacy notes token, e.g. 'condictus: Brauns')."
+    },
+    "transcription_latin": {
+      "type": "string",
+      "description": "Diplomatic Latin/German of the entry (= Stage A text; abbreviations kept)."
+    },
+    "expanded_latin": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Reading/search form (see EXPANDED_LATIN_RULES.md): transcription_latin with abbreviations expanded (supplied letters in [ ], uncertain expansion [?]), wrap hyphens joined, ' / ' line breaks removed, margin prefixed as 'margin | '. Original spelling and æ kept. Nothing added beyond marks/wraps. null = not yet produced."
+    },
+    "translation_de": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Full-sense German. Expected for complete day-book rows (locked CSV requires). Null OK for incomplete fragments / open QC on deferral."
+    },
+    "translation_en": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Full-sense English. Same policy as translation_de."
+    },
+    "notes": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Soft readings, margin N., eadem, aliases (condictus: X / vulg: Y), gh. → spouse, continuations, noble retrospective flags."
+    },
+    "soft_fields": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Map field → soft reason / alternate readings",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "incomplete": {
+      "type": "boolean",
+      "default": false,
+      "description": "True for page-break fragments until continuation locked."
+    },
+    "continuation_note": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Where text continues / prior leaf"
+    },
+    "continues_entry_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional other entry_id this fragment continues into"
+    },
+    "continued_from_entry_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional prior fragment entry_id"
+    },
+    "place_ref": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Optional later gazetteer link; omit in v1 pilot",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "source_citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where the entry can be seen. All parts nullable: existing records have no URL yet. matricula_url is the canonical image-page permalink (viewer URL with ?pg=N), not the hosted-images JPEG.",
+      "properties": {
+        "matricula_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri",
+          "pattern": "^https://data\\.matricula-online\\.eu/.+",
+          "description": "Canonical Matricula viewer permalink to the image page, e.g. https://data.matricula-online.eu/en/deutschland/aachen/lank-st-stephanus/KB+999_3/?pg=2. Copy from the entry manifest matricula_url when present."
+        },
+        "citation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Human-readable citation, e.g. 'Lank, St. Stephanus, Trauungen KB 999_3, scan KB_999-118, p. 252, entry 4. Matricula Online: <url>'."
+        },
+        "archive": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Holding archive as Matricula names it (e.g. 'Aachen, rk. Bistum'; 'Erzbistumsarchiv Paderborn')."
+        },
+        "matricula_collection": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Matricula collection / parish code when the URL uses one (e.g. DE_EBAP_22212); null for slug URLs."
+        },
+        "parish": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Parish display name (e.g. 'Lank St. Stephanus'). The machine key stays parish_slug."
+        },
+        "book_signature": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Book signature as shown on Matricula (e.g. 'KB 999_3', 'KB005-02-H'). Usually = archival_id."
+        },
+        "image_number": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "Matricula viewer image number (?pg=N)."
+        },
+        "image_label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Matricula image label when known (e.g. KB_999-118)."
+        },
+        "page": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Printed page / folio as cited (usually = page)."
+        },
+        "accessed": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Date the URL was checked (ISO YYYY-MM-DD)."
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "place_identification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "place_as_written"
+      ],
+      "description": "A place as written vs the identified real place. Superset of opr-place-ref v1.0.0 (places/place_ref.schema.json): residence_as_written is called place_as_written here because the same object is used for marriage_place / burial_place; place_id, as_of_date, match_confidence and notes are identical.",
+      "properties": {
+        "place_as_written": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Place words as in transcription_latin (diplomatic: abbreviations, periods, [?] kept), without the governing preposition (ex / in / de) unless it is part of the name. E.g. 'Schall.', 'Berenbrok', 'Lanck ven Lüten'."
+        },
+        "identified_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Editorial/normalized name of the identified place (e.g. Schallern, Klieve). null when not identified."
+        },
+        "place_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Gazetteer id from /workspace/lank-schema/places/ (opr-place.place_id, e.g. place:lank). null until the place exists in the gazetteer."
+        },
+        "match_confidence": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "certain",
+            "probable",
+            "possible",
+            "unmatched",
+            null
+          ],
+          "description": "Same vocabulary as opr-place-ref.match_confidence."
+        },
+        "as_of_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Event date (ISO) used to pick time-bounded names/admin rows from the gazetteer."
+        },
+        "basis": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why this identification (e.g. 'written in full', 'project identification', 'abbreviation of the groom's residence')."
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "admin_snapshot_level": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "admin_level",
+        "admin_name"
+      ],
+      "properties": {
+        "admin_level": {
+          "type": "string",
+          "description": "Use the opr-place-admin admin_level vocabulary (herrschaft, amt, kreis, departement, state, country, deanery, …). Proposed additions pending Stephen: territory, diocese."
+        },
+        "admin_name": {
+          "type": "string"
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "period_jurisdiction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source"
+      ],
+      "description": "Historical territory / Amt / diocese at the time of the event. The temporal gazetteer (places/place_admin.schema.json) is the source of truth: prefer source=gazetteer with place_id + as_of_date and resolve admin rows at query time (nothing is copied). source=editorial is a stop-gap snapshot for places not yet in the gazetteer; promote it into place_admin rows later.",
+      "properties": {
+        "source": {
+          "enum": [
+            "gazetteer",
+            "editorial"
+          ]
+        },
+        "place_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Gazetteer place whose place_admin rows apply (event place, else residence, else parish seat)."
+        },
+        "as_of_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Event date ISO (partial allowed)."
+        },
+        "editorial_levels": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/admin_snapshot_level"
+          },
+          "description": "Only when source=editorial. Ordered broad → narrow or as known."
+        },
+        "basis": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Which place the jurisdiction was resolved for (e.g. 'parish seat', 'event place')."
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "gazetteer"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "place_id"
+            ],
+            "properties": {
+              "place_id": {
+                "type": "string"
+              },
+              "editorial_levels": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "editorial"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "editorial_levels"
+            ],
+            "properties": {
+              "editorial_levels": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "alias": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "form",
+        "marker"
+      ],
+      "description": "One byname / alias of a person.",
+      "properties": {
+        "form": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Alias in person-field form (capitalized, nominative), e.g. Schäper, Herweg, Brauns."
+        },
+        "marker": {
+          "enum": [
+            "dictus",
+            "genannt",
+            "vulgo",
+            "condictus",
+            "alias",
+            "other"
+          ],
+          "description": "Normalized marker lemma: dictus (dictus/dicta/dtā/dtʸ/dæ̱), genannt (gen./genannt), vulgo (vulgo/vulg.), condictus (cond./condictus/conducta/condicta), alias, other."
+        },
+        "marker_as_written": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Marker exactly as in transcription_latin (e.g. 'Vulgo', 'dtā', 'dtʸ', 'cond.')."
+        },
+        "form_as_written": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Alias as written when it differs from form (case, lowercase, [?])."
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "person_aliases": {
+      "type": "object",
+      "description": "Map person field name → aliases of that person. The person field keeps the primary name only. Each record schema restricts the keys to its own person fields.",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "$ref": "#/$defs/alias"
+        }
+      }
+    },
+    "vital_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "description": "Whether a named person (usually a parent) is stated to be dead at the time of the event, plus the words that say so.",
+      "properties": {
+        "status": {
+          "enum": [
+            "deceased",
+            "living",
+            "uncertain"
+          ],
+          "description": "deceased: defunctus/defuncti/Ffti/obitorum/selig/sel./†/p.m.; living: explicitly stated; uncertain: ambiguous wording (e.g. quondam = formerly or late)."
+        },
+        "as_written": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Diplomatic word(s) from transcription_latin that carry the status (e.g. 'Ffti', 'obtōrum', 'quondam', 'selig'). For a couple-level word ('obtōrum Cjgūm') repeat it on both parents."
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "previous_spouse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "description": "Earlier spouse of a widowed bride/groom (or of the deceased).",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Nominative person-field form; keep [?] and N."
+        },
+        "name_as_written": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Diplomatic form from transcription_latin (e.g. genitive 'Marie Margarethae Schüer[?]')."
+        },
+        "vital_status": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/vital_status"
+            }
+          ]
+        },
+        "residence_identified": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/place_identification"
+            }
+          ]
+        },
+        "aliases": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/alias"
+          }
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "person_with_residence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "description": "Extra named participant (witness / sponsor) beyond the fixed slots, with residence.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Nominative person-field form."
+        },
+        "residence_identified": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/place_identification"
+            }
+          ]
+        },
+        "aliases": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/alias"
+          }
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Role/title as written (e.g. 'Custos in Horn'), kinship, marks."
+        }
+      }
+    }
+  }
+}
