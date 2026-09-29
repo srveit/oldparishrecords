@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # Shared by ensure_dashboard.sh and restart_approve.sh: "running" means answering HTTP, not a pgrep hit or a LISTEN socket.
-# Env overrides (scratch tests only): D, APPROVE_PORT, HTTP_PORT, SVC_LOG.
-D=${D:-/workspace/horn-wilmes/dashboard}; APPROVE_PORT=${APPROVE_PORT:-8081}; HTTP_PORT=${HTTP_PORT:-8080}; SVC_LOG=${SVC_LOG:-$D/ensure.log}
+# Live values are FIXED: inherited env can never redirect the checks or leak into the started servers. Only with SVC_SCRATCH=1
+# (scratch tests) are D, APPROVE_PORT, HTTP_PORT, SVC_LOG taken from the environment, and then all four must be set.
+if [ "${SVC_SCRATCH:-0}" = 1 ]; then
+  : "${D:?}" "${APPROVE_PORT:?}" "${HTTP_PORT:?}" "${SVC_LOG:?}"
+  case "$D" in /workspace/horn-wilmes/*) echo "svc_lib: SVC_SCRATCH=1 with the live dashboard dir; refusing" >&2; exit 2;; esac
+else
+  D=/workspace/horn-wilmes/dashboard; APPROVE_PORT=8081; HTTP_PORT=8080; SVC_LOG=$D/ensure.log
+  unset OPR_PORT OPR_RUN_STATUS OPR_ENTRIES OPR_DASH OPR_STAGEA OPR_STAGEB OPR_BACKUPS OPR_EXTRA_ORIGINS OPR_W OPR_APPROVE_URL
+fi
 slog(){ echo "$(date -Is) $*" >> "$SVC_LOG"; }
 # Health checks: the approve server answers GET /api/approve with 405 {"error": "POST only"}; the http server serves index.html (200).
 approve_ok(){ curl -s --max-time 2 "http://127.0.0.1:$APPROVE_PORT/api/approve" 2>/dev/null | grep -q '"POST only"'; }
@@ -22,7 +29,8 @@ ensure_svc(){ local name=$1 s=$2 f=$3 log=$4 pidf=$5 i try
   [ -n "$(svc_pids $s)" ] && { slog "$name: pid(s) $(svc_pids $s) alive but not answering for 5s; stopping"; svc_stop $s; }
   for try in 1 2; do
     svc_start $s "$log" "$pidf"
-    if wait_ok $f 5; then slog "started $name (pid $(cat $pidf), healthy, attempt $try)"; return 0; fi
-    slog "$name: attempt $try not healthy after 5s"; svc_stop $s
+    local k np=$(cat "$pidf"); for ((k=0;k<50;k++)); do $f && break; kill -0 $np 2>/dev/null || break; sleep 0.1; done
+    if $f; then slog "started $name (pid $np, healthy, attempt $try)"; return 0; fi
+    slog "$name: attempt $try not healthy ($(kill -0 $np 2>/dev/null && echo "no answer in 5s" || echo "exited at once"; true))"; svc_stop $s
   done
   slog "$name: FAILED to start healthy after 2 attempts"; return 1; }
