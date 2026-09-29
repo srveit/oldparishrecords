@@ -199,7 +199,7 @@ def _apply_fields(rec, f, recs):
         if k in f:
             v = clean(f[k], k)
             if k in ('book_url', 'url') and v and not re.match(r'https?://', v): raise RowError(f'{k} must start with https://', 400)
-            if k == 'book' and v and not re.fullmatch(r'[A-Za-z0-9._\-]+', v): raise RowError('book code may use letters, digits, . _ - only', 400)
+            if k == 'book' and v and not re.fullmatch(r'[A-Za-z0-9._\- +]+', v): raise RowError('book code may use letters, digits, spaces, . _ - + only', 400)
             if k == 'town' and not v: rec.pop('town', None)
             elif k in ('notes', 'book_url') and not v: rec.pop(k, None)
             else: rec[k] = v
