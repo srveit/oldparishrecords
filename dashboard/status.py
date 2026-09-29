@@ -168,9 +168,9 @@ def extr(code, img):
     for base in (f'{W}/records', f'{W}/stageB'):
         for p in glob.glob(f'{base}/**/*', recursive=True):
             n = os.path.basename(p)
-            if os.path.isfile(p) and (code in n or img in n or img.replace('Horn_', '') in n or f'_{code}_' in n):
+            if os.path.isfile(p) and not n.endswith('_page_metadata.json') and (code in n or img in n or img.replace('Horn_', '') in n or f'_{code}_' in n):
                 hits.append(p)
-    if not hits: return None, ''
+    if not any(p.endswith('.json') for p in hits): return None, ''   # a summary .md alone (page-metadata-only folder) is not an extraction
     st = set()
     for p in hits:
         if p.endswith('.json'):
@@ -285,7 +285,7 @@ def write_extraction_pages(rows):
     for r in rows:
         xs = str(r['extraction']['status']).lower()
         if not xs.startswith(('draft', 'approved')): continue
-        nb, nbl = _json_field_counts([p for p in glob.glob(os.path.join(W, 'stageB', r['code'], '*.json')) if '.bak' not in os.path.basename(p)], 'stage_b_status', 'status')
+        nb, nbl = _json_field_counts([p for p in glob.glob(os.path.join(W, 'stageB', r['code'], '*.json')) if '.bak' not in os.path.basename(p) and not p.endswith('_page_metadata.json')], 'stage_b_status', 'status')
         c = r['code']; r['extraction']['link'] = f'extraction/{c}.html'
         booku = f"{MBASE}{r['collection']}/{r['book']}/?pg=1"      # title page (BOOKPG in index.html: all books = 1)
         sa = _stagea_entries(c); mdfull = ''
@@ -351,6 +351,7 @@ def _stageb_records(code):
     sb = {}
     for p in sorted(glob.glob(f'{W}/stageB/{code}/*.json'), key=lambda q: (_enum(os.path.basename(q)), q)):
         fn = os.path.basename(p)
+        if fn.endswith('_page_metadata.json'): continue
         try: j = json.load(open(p, encoding='utf-8')); body = json.dumps(j, indent=2, ensure_ascii=False)
         except Exception as ex: j = {}; body = f'unreadable: {ex}'
         n = _enum(fn)
@@ -1237,7 +1238,7 @@ def build_meta(rows, now):
     except Exception: pass
     sb = collections.Counter(); nb = 0
     for p in glob.glob(os.path.join(W, 'stageB', '*', '*.json')):
-        if '.bak' in os.path.basename(p): continue
+        if '.bak' in os.path.basename(p) or p.endswith('_page_metadata.json'): continue
         try: j = json.load(open(p, encoding='utf-8'))
         except Exception: continue
         if isinstance(j, dict) and j.get('schema_version'): sb[f"{j.get('schema_id') or '?'} {j['schema_version']}"] += 1; nb += 1

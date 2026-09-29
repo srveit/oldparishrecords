@@ -341,7 +341,7 @@ def stage_approve(code, action, client):
             if time.time() - t0 > 15: raise Reject('lock is held by another writer; try again', 503)
             time.sleep(0.2)
     try:
-        files = sorted(p for p in glob.glob(os.path.join(d, pat)) if os.path.isfile(p) and '.bak' not in os.path.basename(p))
+        files = sorted(p for p in glob.glob(os.path.join(d, pat)) if os.path.isfile(p) and '.bak' not in os.path.basename(p) and not p.endswith('_page_metadata.json'))
         if not files: raise Reject(f'{code}: no {what} files in {d}; nothing changed', 409)
         if action == 'expansion':              # every Stage A entry must have its expansion, plus the summary .md
             need = {os.path.basename(p)[:-len('.diplomatic.json')] for p in glob.glob(os.path.join(_sa(code), '*.diplomatic.json'))}
@@ -432,7 +432,7 @@ def recut(code, client):
         if not seg.lower().startswith('approved') or e.get('segmentation'):
             raise Reject(f'{code}: segmentation is {e.get("segmentation") or seg!r}; a recut can only be requested for an Approved row with no redo stage; nothing changed', 409)
         tr = str(row.get('transcription', {}).get('status', ''))
-        has_files = bool(glob.glob(os.path.join(_sa(code), '*.diplomatic.json')) or glob.glob(os.path.join(STAGEB, code, '*.json')))
+        has_files = bool(glob.glob(os.path.join(_sa(code), '*.diplomatic.json')) or [q for q in glob.glob(os.path.join(STAGEB, code, '*.json')) if not q.endswith('_page_metadata.json')])
         hold = has_files or tr.lower() != 'not started'
         stamp_t = now_ct(); ob = next_bak(op); shutil.copy2(op, ob)
         e['segmentation'] = 'Queued for redo'; e['seg_stage_set'] = stamp_t
@@ -501,7 +501,7 @@ def segmentation_correction(code, entry_id, issues, note, client):
         if str(stage or '').lower() in ('queued for redo', 'redoing'): new_stage = stage          # leave the stage, just add the correction
         else:
             new_stage = 'Queued for redo'; e['segmentation'] = new_stage; e['seg_stage_set'] = stamp_t; changed_ov = True
-            has_files = bool(glob.glob(os.path.join(_sa(code), '*.diplomatic.json')) or glob.glob(os.path.join(STAGEB, code, '*.json')))
+            has_files = bool(glob.glob(os.path.join(_sa(code), '*.diplomatic.json')) or [q for q in glob.glob(os.path.join(STAGEB, code, '*.json')) if not q.endswith('_page_metadata.json')])
             if (has_files or tr.lower() != 'not started') and e.get('transcription') != HOLD:
                 e['prev_transcription'] = tr; e['prev_transcription_override'] = e.get('transcription')
                 e['transcription'] = HOLD; e['hold_set'] = stamp_t; hold = True
