@@ -21,3 +21,5 @@ if ! sudo timeout 10 tailscale --socket=$SOCK serve status 2>/dev/null | grep -q
   sudo timeout 15 tailscale --socket=$SOCK serve --bg --http=80 --set-path=/api/approve http://127.0.0.1:8081/api/approve >>$L 2>&1; log "restored approve path"
 fi
 code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:8080/index.html); echo "local:$code"
+# Login service (Site Host): restores the auth service on 127.0.0.1:8082 and its /login, /logout, /auth/check serve paths (idempotent).
+[ -x /workspace/opr-dashboard-auth/ensure_auth.sh ] && /workspace/opr-dashboard-auth/ensure_auth.sh

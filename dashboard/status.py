@@ -308,7 +308,7 @@ function oprPost(btn,payload,busy,onOk,errEl){
  if(errEl){errEl.textContent='';}
  function fail(t){window.oprBusy=false;btn.disabled=false;btn.innerHTML=lbl;if(errEl){errEl.textContent=t;errEl.style.color='#b00020';}}
  fetch(__URL__,{method:'POST',headers:{'Content-Type':'application/json','X-OPR-Approve':'1'},body:JSON.stringify(payload)})
- .then(function(x){return x.json().then(function(j){j._http=x.status;return j;},function(){return {ok:false,error:'HTTP '+x.status,_http:x.status};});})
+ .then(function(x){if(window.oprAuth&&window.oprAuth.fail(x)){var go=window.oprAuth.login();return {ok:false,_http:401,error:go?'login required, opening the login page…':'login required, please log in again'};}return x.json().then(function(j){j._http=x.status;return j;},function(){return {ok:false,error:'HTTP '+x.status,_http:x.status};});})
  .then(function(j){if(!j.ok){fail('Not done ('+(j._http||'?')+'): '+j.error);return;}window.oprBusy=false;onOk(j);})
  .catch(function(e){fail('Could not reach the approve service: '+e);});}
 function oprErr(el){var e=el.parentNode.querySelector('.ckerr');if(!e){e=document.createElement('span');e.className='ckerr';el.parentNode.insertBefore(e,el.nextSibling);}return e;}
@@ -497,7 +497,7 @@ _APPROVE_JS = ' '.join(l.strip() for l in r'''function oprApprove(){
  say("");
  function fail(t){window.oprBusy=false;b.disabled=false;b.innerHTML=LBL;say(t,"#b00020");}
  fetch(U,{method:"POST",headers:{"Content-Type":"application/json","X-OPR-Approve":"1"},body:JSON.stringify({code:C,action:A})})
- .then(function(x){return x.json().then(function(j){j._http=x.status;return j;},function(){return {ok:false,error:"HTTP "+x.status,_http:x.status};});})
+ .then(function(x){if(window.oprAuth&&window.oprAuth.fail(x)){var go=window.oprAuth.login();return {ok:false,_http:401,error:go?"login required, opening the login page\u2026":"login required, please log in again"};}return x.json().then(function(j){j._http=x.status;return j;},function(){return {ok:false,error:"HTTP "+x.status,_http:x.status};});})
  .then(function(j){
   if(!j.ok){fail((A=="recut"?"Recut not requested":"Not approved")+" ("+(j._http||"?")+"): "+j.error);return;}
   if(A=="recut"){var q="background:#dde3ea;color:#34495e;border:1px solid #8a9bb0",tq=(String(j.time||"").match(/T(\d\d:\d\d)/)||[])[1]||"";
@@ -516,6 +516,9 @@ _APPROVE_JS = ' '.join(l.strip() for l in r'''function oprApprove(){
 }'''.split('\n'))
 
 # ---- live update: every detail page polls status (15 s) and soft-swaps its body from <code>.bundle.js when its rev changes ----
+AUTH_JS = "(function(R){if(window.oprAuth)return; var file=location.protocol=='file:',tried=false,pub=/^(www\\.)?oldparishrecords\\.com$/i.test(location.hostname); function u(p){return new URL(R+p,location.href).href;} function fail(r){if(file||!r)return false;if(r.status===401)return true; try{if(r.redirected&&/\\/login$/.test(new URL(r.url).pathname))return true;}catch(e){} return (r.headers.get('content-type')||'').toLowerCase().indexOf('text/html')>=0;} function login(){if(file)return false;if(tried)return true;tried=true; var k='oprLoginTry',now=Date.now(),last=0;try{last=+sessionStorage.getItem(k)||0;}catch(e){} if(now-last<20000)return false; try{sessionStorage.setItem(k,String(now));}catch(e){} location.assign(u('login')+'?next='+encodeURIComponent(location.pathname+location.search+location.hash));return true;} function link(){if(!pub||!document.body||document.getElementById('oprlogout'))return; var a=document.createElement('a');a.id='oprlogout';a.href=u('logout');a.textContent='Log out'; a.style.cssText='position:fixed;right:10px;bottom:6px;z-index:50;font:12px system-ui,sans-serif;color:#666;background:rgba(255,255,255,.85);padding:1px 6px;border-radius:6px;text-decoration:none'; document.body.appendChild(a);} window.oprAuth={fail:fail,login:login,link:link,url:u}; if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',link);else link(); })(__ROOT__);"   # login gate helper (oldparishrecords.com): 401 -> login?next=..., Log out link; inert on file://
+def _auth_js(root): return AUTH_JS.replace('__ROOT__', json.dumps(root))
+
 LIVE_JS = ' '.join(l.strip() for l in r'''(function(){
  var M=document.querySelector('meta[name="opr-rev"]');if(!M)return;
  var REV=M.content,K=M.getAttribute('data-kind'),C=M.getAttribute('data-code'),file=location.protocol=="file:";
@@ -534,11 +537,11 @@ LIVE_JS = ' '.join(l.strip() for l in r'''(function(){
    var st=document.getElementById('stk');if(st)document.documentElement.style.setProperty('--stkh',st.offsetHeight+'px');
    window.scrollTo(0,y);REV=p.rev;M.content=REV;
    var h=document.querySelector('#stk .hdr');if(h){var u=document.createElement('span');u.id='oprupd';u.className='src';
-     u.textContent=' · updated live '+new Date().toLocaleTimeString();h.appendChild(u);}};
+     u.textContent=' · updated live '+new Date().toLocaleTimeString();h.appendChild(u);}if(window.oprAuth)window.oprAuth.link();};
  function poll(){if(window.oprBusy)return;
    if(file){inj('../status.js','oprs');return;}
-   fetch('../status.json?t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw r.status;return r.json();}).then(onStatus)
-     .catch(function(){inj('../status.js','oprs');});}
+   fetch('../status.json?t='+Date.now(),{cache:'no-store'}).then(function(r){if(window.oprAuth&&window.oprAuth.fail(r)){window.oprAuth.login();throw 'auth';}if(!r.ok)throw r.status;return r.json();}).then(onStatus)
+     .catch(function(e){if(e==='auth')return;inj('../status.js','oprs');});}
  setInterval(poll,15000);setTimeout(poll,2000);
 })();'''.split('\n'))
 
@@ -549,7 +552,7 @@ def _write_page(dirpath, c, page, kind, r):
     """Write <c>.html (with rev meta + live script) and <c>.bundle.js (same body, for soft swaps incl. file://)."""
     rev = _page_rev(page); r[kind]['rev'] = rev
     head = (f'<meta name="opr-rev" content="{rev}" data-kind="{kind}" data-code="{_html.escape(c, quote=True)}">'
-            f'<script>{LIVE_JS}</script>')
+            f'<script>{_auth_js("../")}</script><script>{LIVE_JS}</script>')
     page = page.replace('<head>', '<head>' + head, 1)
     body = page[page.index('<body>') + 6: page.rindex('</body>')]
     bundle = 'window.oprPage&&window.oprPage(' + json.dumps({'code': c, 'kind': kind, 'rev': rev, 'body': body}) + ');\n'
@@ -728,6 +731,8 @@ def main():
     now = datetime.datetime.now().astimezone()
     data = {'generated_at': now.isoformat(timespec='seconds'), 'generated_epoch': int(now.timestamp()),
             'groups': recs['groups'], 'rows': rows}
+    try: data['meta_html'] = build_meta(rows, now)
+    except Exception as ex: data['meta_html'] = '<p>Meta could not be built: ' + _html.escape(str(ex)) + '</p>'
     os.makedirs(OUT, exist_ok=True)
     s = json.dumps(data, ensure_ascii=False, indent=1)
     write_selftest_page()
@@ -736,18 +741,152 @@ def main():
         os.chmod(tmp, 0o644); os.replace(tmp, os.path.join(OUT, name))
     return data
 
+# ---------------- Meta tab (index.html #metatab), rebuilt every run so live facts stay current ----------------
+def _count_lines(p):
+    try:
+        with open(p, encoding='utf-8') as f: return sum(1 for l in f if l.strip())
+    except Exception: return None
+
+def build_meta(rows, now):
+    """HTML for the Meta tab. Facts come from this code, approve_server.py, updater.sh/push.sh/ensure_dashboard.sh,
+    `tailscale serve status` and Greyhawk's refresh.sh + LaunchAgent (read 2026-09-29). No credentials or secret paths."""
+    import collections, html as H
+    e = H.escape
+    def sec(t, body): return f'<h2>{e(t)}</h2>{body}'
+    def ul(items): return '<ul>' + ''.join(f'<li>{i}</li>' for i in items) + '</ul>'
+    def chip(t, bg, fg, bd=None): return (f'<span class="chip" style="background:{bg};color:{fg};border:1px solid {bd or bg}">{e(t)}</span>')
+    # live values
+    man = collections.Counter(); algo = collections.Counter(); segv = collections.Counter(); nman = 0
+    try:
+        for l in open(os.path.join(W, 'entries/manifest.jsonl'), encoding='utf-8'):
+            if not l.strip(): continue
+            j = json.loads(l); nman += 1
+            man[str(j.get('crop_status') or j.get('status') or 'pending')] += 1
+            if j.get('algorithm_version'): algo[j['algorithm_version']] += 1
+            if j.get('segmenter_version'): segv[j['segmenter_version']] += 1
+    except Exception: pass
+    heads = []
+    try: heads = [l[3:].strip() for l in open(os.path.join(W, 'entries/_tools/ALGORITHM_VERSION.md'), encoding='utf-8') if l.startswith('## ')]
+    except Exception: pass
+    sb = collections.Counter(); nb = 0
+    for p in glob.glob(os.path.join(W, 'stageB', '*', '*.json')):
+        if '.bak' in os.path.basename(p): continue
+        try: j = json.load(open(p, encoding='utf-8'))
+        except Exception: continue
+        if isinstance(j, dict) and j.get('schema_version'): sb[f"{j.get('schema_id') or '?'} {j['schema_version']}"] += 1; nb += 1
+    sa = collections.Counter(); na = 0
+    for p in glob.glob(os.path.join(W, 'stageA', '*', '*.diplomatic.json')):
+        try: j = json.load(open(p, encoding='utf-8'))
+        except Exception: continue
+        na += 1; sa[str(j.get('schema_version') or j.get('schema_id') or '(no schema field)')] += 1
+    st = {k: collections.Counter() for k in ('segmentation', 'transcription', 'extraction')}
+    for r in rows:
+        for k in st: st[k][(r.get(k) or {}).get('status', '?')] += 1
+    q = _count_lines(os.path.join(D, 'notify_queue.jsonl')); lg = _count_lines(os.path.join(W, 'entries', '_approvals.log'))
+    cnt = lambda c: ', '.join(f'{e(str(k))}: {v}' for k, v in sorted(c.items(), key=lambda x: -x[1])) or '–'
+
+    h = ['<p class="mnote">Operational notes for this dashboard, rebuilt by <code>status.py</code> on every refresh '
+         f'(this copy: {e(now.strftime("%Y-%m-%d %H:%M:%S"))} CT). Anything not confirmed from the code or config is marked <i>unverified</i>.</p>']
+    h.append(sec('1. How it is hosted', ul([
+        '<b>https://oldparishrecords.com/dashboard/</b> (hidden: not linked from the public site; every page carries <code>noindex,nofollow</code>). '
+        'OPNsense nginx terminates TLS and gates the whole <code>/dashboard</code> tree, including the API, behind a <b>login page with a session cookie</b> '
+        '(auth service on the box at 127.0.0.1:8082, reached via tailscale serve paths <code>/login</code>, <code>/logout</code>, <code>/auth/check</code>; '
+        'unauthenticated pages are sent to the login page, API/JSON requests get 401). It then reverse-proxies '
+        'over Tailscale to the grokbot box\u2019s <code>tailscale serve</code> on port 80 with the <code>/dashboard</code> prefix stripped. '
+        'OPNsense also sends <code>X-Robots-Tag: noindex, nofollow</code>. <i>(nginx side as reported by Site Host; not visible from this box)</i>',
+        '<code>tailscale serve</code> (tailnet only, not Funnel): <code>/</code> \u2192 <code>127.0.0.1:8080</code> (<code>server.py</code>, static files from <code>dashboard/out/</code>); '
+        '<code>/api/approve</code> \u2192 <code>127.0.0.1:8081/api/approve</code> (<code>approve_server.py</code>); both servers listen on localhost only.',
+        'Tailnet URL <code>http://grokbot-box.taileabb91.ts.net/</code> works unchanged. All page links, images and polling URLs are relative; '
+        'the approve URL is resolved in the browser (<code>../api/approve</code> from detail pages), so the same files work under <code>/</code> and <code>/dashboard/</code>.',
+        'Approve API accepts only allowed origins (the tailnet host, <code>https://oldparishrecords.com</code>, <code>https://www.oldparishrecords.com</code>, local file pages) '
+        'and requires the <code>X-OPR-Approve: 1</code> header. Hidden is not access control: the API is reachable only via the tailnet or behind the login gate. Pages show a small <b>Log out</b> link on oldparishrecords.com; if a poll or an action gets 401 (session expired), the page goes to <code>login?next=&lt;this page&gt;</code> once per page load.',
+        'Greyhawk mirror: <code>~/OPR-Dashboard/</code> on Stephen\u2019s Mac, opened as <code>file://</code>; approve buttons there post to the tailnet URL.',
+        'Self-test for the approve path: <code>_selftest.html</code> (not linked) posts action <code>selftest</code> / code <code>TEST0000</code>, '
+        'which writes only <code>dashboard/_selftest/</code>.'])))
+    h.append(sec('2. Where the data comes from', ul([
+        'Scans: Matricula Online (links on each row point to <code>data.matricula-online.eu</code>).',
+        '<code>dashboard/records.json</code>: the row list (code, book, page, image_id, groups).',
+        '<code>entries/manifest.jsonl</code> (combined crop manifest; segmentation status, crop paths, lock state) and per-book <code>entries/&lt;book&gt;/manifest.jsonl</code> '
+        '(written by approve; status.py reads the combined file).',
+        '<code>stage0/*.page.json</code> (page structure; parish/town names) and <code>stage0_work/</code> (presence check only).',
+        '<code>stageA/&lt;code&gt;/*.diplomatic.json</code> and <code>&lt;code&gt;_stageA.md</code> (transcriptions; <code>status</code> soft/locked per entry), '
+        '<code>stageA/&lt;code&gt;/_confirmed_readings.json</code>, <code>_feedback_status.json</code>.',
+        '<code>stageB/&lt;code&gt;/*.json</code> (extracted records; <code>stage_b_status</code>) and <code>&lt;code&gt;_stageB.md</code>.',
+        '<code>dashboard/overrides.json</code> (manual status overrides, redo stages, holds), <code>dashboard/auto_transcribe_sent.json</code> (dispatch marker), '
+        '<code>entries/_qc/*_redo_*.jpg</code> (QC images), crop images at each manifest line\u2019s <code>crop_path</code>.'])))
+    h.append(sec('3. How it updates', ul([
+        '<code>updater.sh</code> loops every 30 s: runs <code>status.py</code> (writes <code>out/status.json</code>, <code>out/status.js</code>, all detail pages + bundles), '
+        'copies <code>index.html</code> into <code>out/</code>, then runs <code>push.sh</code> (copies <code>goals.html</code>).',
+        '<code>approve_server.py</code> runs <code>status.py</code> inline after every successful action, so the pages change within seconds.',
+        'Open pages poll every 15 s (<code>status.json</code> over http(s), <code>status.js</code> on file://) and swap changed content in place: '
+        'no reload, open sections and scroll position kept, the selected tab (URL hash) kept.',
+        'Cache busting: images carry <code>?v=&lt;mtime&gt;</code>, polling requests carry <code>?t=&lt;now&gt;</code>, pages carry no-cache meta tags.',
+        'Greyhawk: LaunchAgent <code>com.veithome.opr-dashboard</code> runs <code>refresh.sh</code> every 60 s (and at login); it fetches '
+        '<code>index.html</code>, <code>status.js</code>, <code>goals.html</code>, then each folder\u2019s <code>list.txt</code> items (crops before bundles), mirroring deletions.',
+        '<code>ensure_dashboard.sh</code> restarts tailscaled, <code>tailscale serve</code>, the updater, <code>server.py</code> and <code>approve_server.py</code> if missing.'])))
+    act = [
+        ('Segmentation Approve', 'Locks the row\u2019s pending crops in <code>entries/manifest.jsonl</code> and the per-book manifest (under <code>entries/.manifest.lock</code>); '
+         'backups <code>manifest.jsonl.bak_approve_&lt;code&gt;_&lt;ts&gt;</code>; clears any redo stage and transcription hold in <code>overrides.json</code> (backup <code>.bakN</code>). '
+         'Log: <code>_approvals.log</code>; queue line <code>action: segmentation</code>. Next: transcription shows <b>Queued</b> and the row goes to the Entry Transcriber.'),
+        ('Transcription Approve (row)', 'Sets <code>status: locked</code> + <code>locked_by</code> on the remaining Stage A entry files; backup in <code>_approve_backups/transcription/</code>. '
+         'Log line + queue line <code>action: transcription</code>. Next: extraction by the Record Extractor <i>(unverified in code)</i>.'),
+        ('Transcription Approve (per entry)', 'Locks one entry file; backup in <code>_approve_backups/approve_transcription_entry/</code>, mirror in <code>stageA/&lt;code&gt;/_entry_approvals.json</code>. '
+         'Queue <code>kind: transcription_entry_approved</code>. When the last entry is locked the row flips to Approved automatically (extra row line with <code>auto_flip: true</code>).'),
+        ('Extraction Approve', 'Locks the row\u2019s Stage B records (<code>stage_b_status</code>); backup in <code>_approve_backups/extraction/</code>; log + queue line <code>action: extraction</code>.'),
+        ('Recut with latest algorithm', 'Only for Approved rows with no redo stage. Sets <code>segmentation: Queued for redo</code> in <code>overrides.json</code> (backup <code>.bakN</code>) and, if a transcription exists, '
+         'puts it <b>On hold until crops approved</b>. Log + queue line <code>action: recut</code>. Never touches manifests or Stage A/B. Next: the Entry Segmenter re-cuts '
+         '(Queued for redo \u2192 Redoing \u2192 Recut), then the row is approved again.'),
+        ('\u2713 Confirm reading', 'Removes exactly one <code>[?]</code> from the token in the Stage A text; backup in <code>_approve_backups/confirm_reading/</code>; record in '
+         '<code>_confirmed_readings.json</code>, pending item in <code>_feedback_status.json</code>. Queue <code>kind: reading_confirmed</code>. Next: the Entry Transcriber '
+         'updates the item (processing \u2192 done) and must not re-add the <code>[?]</code>.'),
+    ]
+    h.append(sec('4. What each action does', ul([f'<b>{e(a)}</b>: {b}' for a, b in act]) +
+                 '<p class="mnote">All actions: one click, no confirmation dialog, timestamped backups, atomic writes. Queue lines go to <code>dashboard/notify_queue.jsonl</code> '
+                 '(read by Chief\u2019s watcher; Chief QC). Page Structure (stage0) is upstream of segmentation and has no dashboard action.</p>'))
+    h.append(sec('5. Status words and chips', ul([
+        chip('Approved', '#1e7e34', '#fff') + ' locked (crops, entries or records).',
+        chip('Draft 2/5', '#fff3cd', '#7a5b00', '#ecd47e') + ' work exists, not approved; N/M = entries approved so far.',
+        chip('On hold until crops approved', '#fff3cd', '#7a5b00', '#ecd47e') + ' transcription paused by a recut.',
+        chip('Queued', '#ece2f7', '#5a2d8a', '#cdb4ea') + ' waiting for the next agent.',
+        chip('In progress', '#d6e9fb', '#0b4f8a', '#9cc7ef') + ' an agent is working on it.',
+        chip('Queued for redo', '#dde3ea', '#34495e', '#8a9bb0') + chip('Redoing', '#6f42c1', '#fff', '#5a32a3') + chip('Recut', '#0f8b8d', '#fff', '#0b6e70') +
+        ' segmentation redo stages; Approve is offered at Recut.',
+        chip('Blocked', '#f8d7da', '#842029', '#eea3aa') + ' error or blocked.',
+        chip('Not started', '#eee', '#777') + ' nothing yet.',
+        'Per-entry feedback on transcription pages: <b>Transcriber updating\u2026</b> (amber, pending/processing), <b>Waiting on transcriber</b> '
+        '(muted red, pending over 30 min), <b>Updated</b> (green, 60 s after done).'])))
+    h.append(sec('6. Versions and live counts', ul([
+        'Segmentation algorithm versions in <code>ALGORITHM_VERSION.md</code>: ' + (', '.join(f'<code>{e(x)}</code>' for x in heads) or '–'),
+        f'Combined manifest: {nman} crop lines (crop_status – {cnt(man)}); algorithm_version: {cnt(algo)}; lines without it: {nman - sum(algo.values())}.',
+        f'segmenter_version: {cnt(segv)}.',
+        f'Stage A entry files: {na} ({cnt(sa)}).',
+        f'Stage B records with a schema: {nb} ({cnt(sb)}).',
+        f'Rows: {len(rows)}. Segmentation \u2013 {cnt(st["segmentation"])}.',
+        f'Transcription \u2013 {cnt(st["transcription"])}.', f'Extraction \u2013 {cnt(st["extraction"])}.',
+        f'notify_queue.jsonl: {q if q is not None else "–"} lines; _approvals.log: {lg if lg is not None else "–"} lines.',
+        f'Last refresh: {e(now.isoformat(timespec="seconds"))}.'])))
+    h.append(sec('7. Backups and undo', ul([
+        'Segmentation approve: restore <code>entries/&lt;book&gt;/manifest.jsonl.bak_approve_&lt;code&gt;_&lt;ts&gt;</code> and <code>entries/manifest.jsonl.bak_approve_&lt;code&gt;_&lt;ts&gt;</code>, '
+        'plus <code>overrides.json</code> from the <code>.bakN</code> named in the response.',
+        'Transcription, extraction, per-entry, confirm-reading: copy the files back from <code>_approve_backups/&lt;action&gt;/&lt;code&gt;_&lt;ts&gt;/</code> into '
+        '<code>stageA/&lt;code&gt;/</code> or <code>stageB/&lt;code&gt;/</code> (confirm-reading also restores <code>_confirmed_readings.json</code> and <code>_feedback_status.json</code>; '
+        'per-entry: remove the entry from <code>_entry_approvals.json</code>).',
+        'Recut: <code>setseg.py &lt;code&gt; clear</code> or restore <code>overrides.json.bakN</code>.',
+        'Hold <code>entries/.manifest.lock</code> while restoring, then run <code>status.py</code>. Queue lines are append-only: tell Chief to disregard the line.'])))
+    return ''.join(h)
+
 SELFTEST_JS = r"""
 document.getElementById('go').onclick=function(){var b=this,o=document.getElementById('out');b.disabled=true;o.textContent='Sending…';
  var u=new URL('api/approve',location.href).href;
  fetch(u,{method:'POST',headers:{'Content-Type':'application/json','X-OPR-Approve':'1'},body:JSON.stringify({code:'TEST0000',action:'selftest'})})
- .then(function(x){return x.text().then(function(t){o.textContent='POST '+u+'\nHTTP '+x.status+'\n'+t;b.disabled=false;});})
+ .then(function(x){if(window.oprAuth&&window.oprAuth.fail(x)){o.textContent=window.oprAuth.login()?'Login required, opening the login page…':'Login required, please log in again';b.disabled=false;return;}return x.text().then(function(t){o.textContent='POST '+u+'\nHTTP '+x.status+'\n'+t;b.disabled=false;});})
  .catch(function(e){o.textContent='POST '+u+'\nfailed: '+e;b.disabled=false;});};
 """
 def write_selftest_page():
     """out/_selftest.html: hidden (noindex, not linked anywhere) one-button page for Site Host's end-to-end test of the
     approve path through the login. Hits action 'selftest' / code 'TEST0000', which writes only dashboard/_selftest/."""
     page = ('<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-            + NOCACHE + '<title>OPR dashboard – approve self-test</title>'
+            + NOCACHE + '<script>' + _auth_js('') + '</script><title>OPR dashboard – approve self-test</title>'
             '<style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;max-width:760px}button{font:inherit;padding:6px 16px}'
             'pre{background:#f4f4f4;padding:10px;white-space:pre-wrap;word-break:break-all}</style></head><body>'
             '<h1>Approve self-test</h1><p>Sends <code>{"code":"TEST0000","action":"selftest"}</code> to <code>api/approve</code> '

@@ -33,7 +33,7 @@ LOCKED_VALUES = {'locked', 'approved', 'final'}
 LOCKFILE = os.path.join(ENTRIES, '.manifest.lock')      # shared lock convention for manifest writers
 ALLOWED_ORIGINS = {'http://grokbot-box.taileabb91.ts.net', 'https://grokbot-box.taileabb91.ts.net', 'http://grokbot-box',
                    'http://127.0.0.1:8080', 'http://localhost:8080', 'null', 'file://',
-                   'https://oldparishrecords.com', 'https://www.oldparishrecords.com'}   # oldparishrecords.com/dashboard/ (OPNsense nginx + HTTP basic auth, prefix stripped)   # file:// pages send Origin null (or file:// in some Chrome modes)
+                   'https://oldparishrecords.com', 'https://www.oldparishrecords.com'}   # oldparishrecords.com/dashboard/ (OPNsense nginx, behind the login/session gate, prefix stripped)   # file:// pages send Origin null (or file:// in some Chrome modes)
 ALLOWED_ORIGINS |= {o.strip() for o in os.environ.get('OPR_EXTRA_ORIGINS', '').split(',') if o.strip()}   # scratch testing only
 REFERER_PREFIXES = tuple(o + '/' for o in ALLOWED_ORIGINS if o not in ('null', 'file://')) + ('file://',)
 PENDING = {'pending', 'draft'}
