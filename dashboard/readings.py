@@ -220,8 +220,45 @@ def load_confirmed(sadir):
     except Exception: return []
     return v if isinstance(v, list) else []
 
+def legacy_edit(x):
+    """Older direct-edit records (e.g. 'by': 'Stephen voice'/'Stephen chat'): no 'type'/'change_id', 'token' = the NEW text and
+    'before' = the old text. -> an edit-shaped dict (token = old, new = new, legacy = True), or None when it is not such a record or
+    is not unambiguous (needs entry_id, field, before != token, and a context_before anchor). These are never undone or reverted."""
+    if not isinstance(x, dict) or x.get('type') or 'before' not in x: return None
+    e, f, old, new, cb = x.get('entry_id'), x.get('field'), x.get('before'), x.get('token'), x.get('context_before')
+    if not all(isinstance(v, str) and v for v in (e, f, old, new, cb)) or old == new or f == 'md': return None
+    return {'type': 'edit', 'legacy': True, 'change_id': f'legacy:{e}:{f}:{x.get("time", "")}', 'entry_id': e, 'field': f,
+            'token': old, 'new': new, 'occurrence': x.get('occurrence'), 'context_before': cb, 'context_after': x.get('context_after', ''),
+            'time': x.get('time', ''), 'by': x.get('by', ''), 'author': 'Stephen', 'confirms_reading': has_marker(old) and not has_marker(new)}
+
+def is_legacy_record(x): return isinstance(x, dict) and not x.get('type') and 'before' in x
+
 def active_changes(sadir):
-    return [x for x in load_confirmed(sadir) if isinstance(x, dict) and x.get('type') in ('choice', 'edit') and not x.get('undone')]
+    out = [x for x in load_confirmed(sadir) if isinstance(x, dict) and x.get('type') in ('choice', 'edit') and not x.get('undone')]
+    return out + [l for l in map(legacy_edit, load_confirmed(sadir)) if l]
+
+def ctx_hits(v, tok, ctx):
+    """Positions of tok in v (whole word: not inside a longer word, not followed by '[') whose preceding text ends with the
+    recorded context (last 12 chars, whitespace-normalised). Context is required: never a guess."""
+    t12 = _tail(ctx); out = []
+    if not t12 or not tok: return out
+    k = v.find(tok)
+    while k >= 0:
+        e = k + len(tok); pre = v[k - 1] if k else ' '; post = v[e] if e < len(v) else ' '
+        if not WORDC.match(pre) and not WORDC.match(post) and post != '[' and _tail(v[:k]).endswith(t12): out.append(k)
+        k = v.find(tok, k + 1)
+    return out
+
+def plan_legacy(obj, field, tok, new, ctx):
+    """Forward re-apply of a legacy edit: the named top-level field and its transcription copies (diplomatic_*, columns.*), each only
+    where the old text sits after the same context and exactly once. Notes, uncertain lists etc. are never touched."""
+    out = copy(obj); ch = []
+    for p, v in walk(obj):
+        if not (p[0] == field or str(p[0]).startswith('diplomatic_') or p[0] == 'columns'): continue
+        hs = ctx_hits(v, tok, ctx)
+        if len(hs) != 1: continue
+        nv = v[:hs[0]] + new + v[hs[0] + len(tok):]; set_path(out, p, nv); ch.append((p, v, nv))
+    return out, ch
 
 # ---------------- the three user actions ----------------
 class Ctx:
@@ -396,8 +433,11 @@ def reapply_all(W, dash, codes, log=print):
             else:
                 try: o = json.loads(txt)
                 except Exception: continue
-                v = o.get(c['field']); hit = (str(o.get('status', '')).lower() not in LOCKED_VALUES and isinstance(v, str)
-                                               and locate_lax(v, tok, c.get('occurrence'), cb) is not None)
+                v = o.get(c['field'])
+                if c.get('legacy') and not isinstance(v, str): continue       # field not a top-level text field: ambiguous, leave alone
+                unl = str(o.get('status', '')).lower() not in LOCKED_VALUES
+                if c.get('legacy'): hit = unl and bool(plan_legacy(o, c['field'], tok, c['new'], cb)[1])
+                else: hit = unl and isinstance(v, str) and locate_lax(v, tok, c.get('occurrence'), cb) is not None
             mdp = md_path(stagea, code) if c.get('field') != 'md' else ''
             mhit = bool(mdp) and os.path.isfile(mdp) and bool(md_hits(open(mdp, encoding='utf-8').read(), tok, c.get('context_before', '')))
             bh = [bp for bp, bj in stageb_files(stageb, code, c['entry_id'], fp) if not locked_b(bj) and tok in json.dumps(bj, ensure_ascii=False) and plan_b(bj, tok, c['new'], cb)[1]] if c.get('field') != 'md' else []
@@ -414,7 +454,11 @@ def reapply_all(W, dash, codes, log=print):
                 if i is not None: plan_a = ('md', s[:i] + new + s[i + len(tok):])
             else:
                 obj = json.loads(raw)
-                if str(obj.get('status', '')).lower() not in LOCKED_VALUES and isinstance(obj.get(c['field']), str):
+                if c.get('legacy'):
+                    if str(obj.get('status', '')).lower() not in LOCKED_VALUES:
+                        no, ch = plan_legacy(obj, c['field'], tok, new, cb)
+                        if ch: plan_a = ('json', no, ch)
+                elif str(obj.get('status', '')).lower() not in LOCKED_VALUES and isinstance(obj.get(c['field']), str):
                     i = locate_lax(obj[c['field']], tok, c.get('occurrence'), cb)
                     if i is not None:
                         no, ch, _ = plan_entry(obj, c['field'], tok, new, i); plan_a = ('json', no, ch)

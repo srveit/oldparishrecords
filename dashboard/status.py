@@ -252,7 +252,7 @@ def write_extraction_pages(rows):
                 btn=('' if not (xs.startswith('draft') and EXTRACTION_APPROVE_ENABLED and nb) else _lock_note(nbl, nb, 'Stage B records', E) if nbl else
                      ' ' + _approve_btn(r, 'extraction', f"Approve the extraction of row {r['id']} ({c})? This locks all {nb} Stage B record file(s) in stageB/{c}/.")),
                 line2=(f'<b>Name</b> {E(r["name"])}{(" &times; " + E(r["spouse"])) if r.get("spouse") else ""} &nbsp; '
-                       f'<b>Date</b> {E(r.get("date"))} &nbsp; <b>Type</b> {E(r.get("type"))} &nbsp; <b>Image</b> {_img_link(r, E)} &nbsp; '
+                       f'<b>Date</b> {E(r.get("date"))} &nbsp; <b>Image</b> {_img_link(r, E)} &nbsp; '
                        f'<a href="{E(r["url"])}" target="_blank" rel="noopener">Matricula page</a> &nbsp;|&nbsp; '
                        f'<a href="{E(booku)}" target="_blank" rel="noopener">Book title page</a>'),
                 below=TOGGLE_JS) +
@@ -331,16 +331,28 @@ def _render_tokens(text, eid, field, conf, E, regained, locked=False):
     - any word       double-click / double-tap / long-press to edit it inline (edit_reading)
     - an active choice/edit (readings.py record) shows as a blue ✓ chip with Undo, never as the old token again
     Locked/approved entries are read-only: no picker, no editing (the ✓ confirm keeps its existing behaviour)."""
-    mine = [x for x in conf if not x.get('type') and x.get('entry_id') == eid and x.get('field', 'diplomatic_text') == field]
+    # ✓ confirm records only: legacy direct-edit records ('before' field, e.g. by voice) are NOT confirms of their token
+    mine = [x for x in conf if not x.get('type') and not RD.is_legacy_record(x) and x.get('entry_id') == eid and x.get('field', 'diplomatic_text') == field]
     chs = [x for x in conf if x.get('type') in ('choice', 'edit') and not x.get('undone') and x.get('entry_id') == eid and x.get('field', 'diplomatic_text') == field]
+    chs += [l for l in map(RD.legacy_edit, conf) if l and l['entry_id'] == eid and l['field'] == field]
     toks = RD.tokens(text); places = []
     def chip(c):
         t = str(c.get('time', ''))[11:16]; verb = 'Chose' if c['type'] == 'choice' else 'Saved'
+        if c.get('legacy'):      # read-only note: no Undo for direct edits recorded outside the dashboard
+            how = str(c.get('by', '')).replace('Stephen', '').strip() or 'hand'
+            return (f'<span class="tq chosen" title="Edited by Stephen ({E(how)}) {E(c.get("time", ""))}; was {E(c.get("token", ""))}; read-only here">{E(c["new"])}</span>'
+                    f'<span class="chz legacy">\u270e Edited by {E(how)} \u201c{E(c["new"])}\u201d at {E(t)}</span>')
         und = ('' if locked else f'<button type="button" class="undo" onclick="oprUndo(this)" title="Undo: put the old reading back">Undo</button>')
         return (f'<span class="tq chosen" title="{E(verb)} by Stephen {E(c.get("time", ""))}; was {E(c.get("token", ""))}">{E(c["new"])}</span>'
                 f'<span class="chz" data-id="{E(c.get("change_id", ""))}">\u2713 {verb} \u201c{E(c["new"])}\u201d at {E(t)}{und}</span>')
     for c in chs:
         old, new, cb = c.get('token', ''), c.get('new', ''), c.get('context_before', '')
+        if c.get('legacy'):
+            ho = RD.ctx_hits(text, old, cb)
+            if len(ho) == 1: places.append((ho[0], ho[0] + len(old), chip(c))); continue   # old text back (re-apply pending)
+            hn = RD.ctx_hits(text, new, cb)
+            if len(hn) == 1: places.append((hn[0], hn[0] + len(new), chip(c)))
+            continue
         k = RD.locate_lax(text, old, c.get('occurrence'), cb) if old else None
         if k is not None: places.append((k, k + len(old), chip(c))); continue      # source regained the old token (re-apply pending)
         t12 = RD._tail(cb); hits = [m for m in range(len(text)) if new and text.startswith(new, m) and (not t12 or RD._tail(text[:m]).endswith(t12))]
