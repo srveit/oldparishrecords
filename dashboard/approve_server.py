@@ -419,6 +419,89 @@ def recut(code, client):
     finally:
         fcntl.flock(lf, fcntl.LOCK_UN); lf.close()
 
+
+# ---------- per-entry segmentation correction (Correct button on segmentation pages) ----------
+CORR_ISSUES = [('top_cut', 'top cut off'), ('bottom_cut', 'bottom cut off'), ('left_cut', 'left edge cut'), ('right_cut', 'right edge cut'),
+               ('neighbour', 'includes part of neighbour entry'), ('merge_above', 'merge with entry above'), ('merge_below', 'merge with entry below'),
+               ('split', 'split this entry'), ('wrong_label', 'wrong entry number or label'), ('other', 'other')]
+CORR_LABEL = dict(CORR_ISSUES)
+CORR_DIR = os.path.join(ENTRIES, '_corrections')
+
+def segmentation_correction(code, entry_id, issues, note, client):
+    """Flag one crop for the Entry Segmenter. Writes entries/_corrections/<code>.json (pending, keyed by entry_id; several
+    accumulate), overrides.json (row -> 'Queued for redo' unless already Queued/Redoing; recut-style transcription hold),
+    _approvals.log + notify_queue.jsonl. Locked crop on a non-Approved row -> 409. Approved row -> recut request
+    (same as 'Recut with latest algorithm') carrying the correction (recut_request: true). Never touches manifests, crops,
+    Stage A or Stage B. 'Row Approved' = every crop of the row locked (Approved, or already Queued/Redoing from an earlier
+    recut request), so several crops of an Approved row can be flagged before the Segmenter starts."""
+    if not re.fullmatch(r'[A-Za-z0-9_.\-]+', entry_id or ''): raise Reject('bad entry_id', 400)
+    if not isinstance(issues, list) or any(not isinstance(i, str) or i not in CORR_LABEL for i in issues):
+        raise Reject('issues must be a list of: ' + ', '.join(k for k, _ in CORR_ISSUES), 400)
+    issues = [k for k, _ in CORR_ISSUES if k in issues]                     # de-dup, canonical order
+    note = (note if isinstance(note, str) else '').strip()
+    if len(note) > 2000: raise Reject('note too long (max 2000 characters)', 400)
+    if not issues and not note: raise Reject('tick at least one issue or write a note; nothing changed', 400)
+    row, img = _row_meta(code)
+    ent = None; rowcrops = []
+    for l in open(os.path.join(ENTRIES, 'manifest.jsonl'), encoding='utf-8'):
+        try: j = json.loads(l)
+        except ValueError: continue
+        if (j.get('image_id') or j.get('scan')) != img: continue
+        rowcrops.append(j)
+        if j.get('entry_id') == entry_id: ent = j
+    if ent is None: raise Reject(f'{entry_id} is not a crop of {code} in the segmentation manifest; nothing changed', 400)
+    op = os.path.join(DASH, 'overrides.json'); cp = os.path.join(CORR_DIR, f'{code}.json')
+    lf = _lock()
+    try:
+        ov = json.load(open(op, encoding='utf-8')); e = ov.get(code) if isinstance(ov.get(code), dict) else {}
+        seg = str(row.get('segmentation', {}).get('status', '')); stage = e.get('segmentation')
+        all_locked = bool(rowcrops) and all('locked' in crop_state(j) for j in rowcrops)   # whole row approved (crops locked)
+        row_approved = all_locked and (seg.lower().startswith('approved') or str(stage or '').lower() in ('queued for redo', 'redoing'))
+        crop_locked = 'locked' in crop_state(ent)
+        if crop_locked and not row_approved:
+            raise Reject(f'{entry_id}: this crop is locked but the row is not Approved (segmentation {stage or seg!r}); '
+                         'a correction cannot be filed on it; nothing changed', 409)
+        tr = str(row.get('transcription', {}).get('status', ''))
+        stamp_t = now_ct(); changed_ov = False; hold = False
+        if str(stage or '').lower() in ('queued for redo', 'redoing'): new_stage = stage          # leave the stage, just add the correction
+        else:
+            new_stage = 'Queued for redo'; e['segmentation'] = new_stage; e['seg_stage_set'] = stamp_t; changed_ov = True
+            has_files = bool(glob.glob(os.path.join(STAGEA, code, '*.diplomatic.json')) or glob.glob(os.path.join(STAGEB, code, '*.json')))
+            if (has_files or tr.lower() != 'not started') and e.get('transcription') != HOLD:
+                e['prev_transcription'] = tr; e['prev_transcription_override'] = e.get('transcription')
+                e['transcription'] = HOLD; e['hold_set'] = stamp_t; hold = True
+                e['note'] = (f'{"Recut" if row_approved else "Correction"} requested {stamp_t[:16].replace("T", " ")} CT; '
+                             'transcription on hold until the new crops are approved.')
+        os.makedirs(CORR_DIR, exist_ok=True)
+        bdir = _backup('segmentation_correction', code, [cp, op])
+        ob = None
+        if changed_ov: ob = next_bak(op); shutil.copy2(op, ob); ov[code] = e; write_overrides(ov)
+        try: cj = json.load(open(cp, encoding='utf-8'))
+        except Exception: cj = {}
+        if not isinstance(cj.get('pending'), dict): cj = {'code': code, 'image_id': img, 'pending': {}}
+        cid = f'corr-{code}-{entry_id[len(img):].lstrip("_") if entry_id.startswith(img) else entry_id}-{stamp_t[:19].replace(":", "").replace("-", "")}'
+        item = {'id': cid, 'time': stamp_t, 'issues': [CORR_LABEL[k] for k in issues], 'issue_keys': issues, 'note': note,
+                'author': 'Stephen', 'by': 'Stephen dashboard', 'client': client, 'recut_request': row_approved}
+        cj['pending'].setdefault(entry_id, []).append(item); cj['updated_at'] = stamp_t
+        _atomic_json(cp, cj)
+        line = {'time': stamp_t, 'kind': 'segmentation_correction', 'action': 'segmentation_correction', 'row': row.get('id'), 'code': code,
+                'book': row.get('book'), 'image_id': img, 'entry_id': entry_id, 'crop_path': ent.get('crop_path'),
+                'issues': item['issues'], 'note': note, 'author': 'Stephen', 'by': 'Stephen dashboard', 'id': cid,
+                'recut_request': row_approved, 'segmentation': new_stage, 'transcription_hold': hold or e.get('transcription') == HOLD,
+                'pending_for_row': sum(len(v) for v in cj['pending'].values())}
+        with open(os.path.join(ENTRIES, '_approvals.log'), 'a', encoding='utf-8') as f: f.write(json.dumps(line, ensure_ascii=False) + '\n')
+        notify(line)
+    finally:
+        _unlock(lf)
+    st = ''
+    if RUN_STATUS:
+        pr = subprocess.run(['python3', 'status.py'], cwd=DASH, capture_output=True, text=True, timeout=120)
+        st = 'status.py ok' if pr.returncode == 0 else f'status.py failed: {pr.stderr[-300:]}'
+    return {'ok': True, 'action': 'segmentation_correction', 'code': code, 'entry_id': entry_id, 'id': cid, 'issues': item['issues'],
+            'recut_request': row_approved, 'segmentation': new_stage, 'transcription_hold': line['transcription_hold'], 'time': stamp_t,
+            'pending_for_entry': len(cj['pending'][entry_id]), 'pending_for_row': line['pending_for_row'],
+            'backup': os.path.relpath(bdir, os.path.dirname(BACKUPS)), 'overrides_backup': os.path.basename(ob) if ob else None, 'status': st}
+
 # ---------- per-entry transcription approval + reading confirmation ----------
 TOKRE = re.compile(r'([^\s\[\]|()]+)\[\?\]')          # <token>[?] - token = run of non-space chars (Unicode ok)
 
@@ -640,10 +723,10 @@ class H(http.server.BaseHTTPRequestHandler):
         if not ok: return s.reply(403, {'ok': False, 'error': 'origin/referer not allowed'}, None)
         if s.headers.get('X-OPR-Approve') != '1': return s.reply(403, {'ok': False, 'error': 'missing X-OPR-Approve header'}, origin)
         try:
-            n = int(s.headers.get('Content-Length', 0)); body = json.loads(s.rfile.read(min(n, 10000)) or b'{}')
+            n = int(s.headers.get('Content-Length', 0)); body = json.loads(s.rfile.read(min(n, 20000)) or b'{}')
             code = str(body['code']).strip(); action = str(body.get('action') or 'segmentation').strip()
         except Exception: return s.reply(400, {'ok': False, 'error': 'bad request: JSON body {"code": ...} required'}, origin)
-        if action not in ('segmentation', 'transcription', 'extraction', 'recut', 'approve_transcription_entry', 'confirm_reading', 'selftest'):
+        if action not in ('segmentation', 'transcription', 'extraction', 'recut', 'approve_transcription_entry', 'confirm_reading', 'selftest', 'segmentation_correction'):
             return s.reply(400, {'ok': False, 'error': f'unknown action {action!r}'}, origin)
         if (action == 'transcription' and not TRANSCRIPTION_APPROVE_ENABLED) or (action == 'extraction' and not EXTRACTION_APPROVE_ENABLED):
             return s.reply(403, {'ok': False, 'error': f'{action} approval is disabled on this server'}, origin)
@@ -652,6 +735,8 @@ class H(http.server.BaseHTTPRequestHandler):
                 if action == 'selftest': res = selftest(code, s.client(), s.headers)
                 elif action == 'segmentation': res = approve(code, s.client())
                 elif action == 'recut': res = recut(code, s.client())
+                elif action == 'segmentation_correction':
+                    res = segmentation_correction(code, str(body.get('entry_id') or ''), body.get('issues', []), body.get('note', ''), s.client())
                 elif action == 'approve_transcription_entry': res = approve_transcription_entry(code, str(body.get('entry_id') or ''), s.client())
                 elif action == 'confirm_reading':
                     occ = body.get('occurrence'); occ = int(occ) if isinstance(occ, (int, str)) and str(occ).isdigit() else None

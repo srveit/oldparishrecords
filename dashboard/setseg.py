@@ -5,7 +5,8 @@ Usage:
   setseg.py CODE STAGE [CODE STAGE ...] [--wait-mac [SECONDS]]
   setseg.py --audit                      # check every published segmentation page against the manifest
 STAGE: queued (= 'Queued for redo') | redoing | recut | clear
-  clear removes the stage (and legacy 'seg_redo_note'); a recut hold ('On hold until crops approved') is undone
+  recut archives the row's pending corrections (entries/_corrections/archive/, reason recut);
+  clear removes the stage (and legacy 'seg_redo_note') and archives pending corrections (reason cancelled); a recut hold ('On hold until crops approved') is undone
   (previous transcription override restored, or file-derived); the entry is dropped if nothing else is left.
 Backs up overrides.json (next free .bakN), runs status.py at once (pages + crops regenerated before the 30 s updater),
 then verifies every crop on the row's segmentation page: ?v= must equal the mtime of the file the manifest points to.
@@ -18,6 +19,23 @@ W = os.environ.get('OPR_W', '/workspace/horn-wilmes'); D = os.environ.get('OPR_D
 OUT = os.path.join(D, 'out'); SD = os.path.join(OUT, 'segmentation')
 STAGES = {'queued': 'Queued for redo', 'queued for redo': 'Queued for redo', 'queued-for-redo': 'Queued for redo',
           'redoing': 'Redoing', 'recut': 'Recut', 'clear': None}
+
+def archive_corrections(code, reason, stamp):
+    """Move entries/_corrections/<code>.json pending items to entries/_corrections/archive/<code>_<ts>_<reason>.json
+    (reason 'recut' = the Segmenter re-cut the row; 'cancelled' = setseg clear). Never deletes the record."""
+    cp = os.path.join(W, 'entries', '_corrections', f'{code}.json')
+    try: cj = json.load(open(cp, encoding='utf-8'))
+    except Exception: return 0
+    pend = cj.get('pending') if isinstance(cj.get('pending'), dict) else {}
+    n = sum(len(v) for v in pend.values() if isinstance(v, list))
+    ad = os.path.join(W, 'entries', '_corrections', 'archive'); os.makedirs(ad, exist_ok=True)
+    ap = os.path.join(ad, f'{code}_{stamp[:19].replace(":", "").replace("-", "")}_{reason}.json')
+    rec = dict(cj, archived_at=stamp, archive_reason=reason)
+    fd, tmp = tempfile.mkstemp(dir=ad, suffix='.tmp')
+    with os.fdopen(fd, 'w', encoding='utf-8') as f: json.dump(rec, f, ensure_ascii=False, indent=1)
+    os.chmod(tmp, 0o644); os.replace(tmp, ap); os.remove(cp)
+    print(f'{code}: {n} pending correction(s) archived ({reason}) -> {os.path.relpath(ap, W)}')
+    return n
 
 def die(msg): print('ERROR:', msg); sys.exit(2)
 
@@ -140,6 +158,8 @@ def main(argv):
                 e['segmentation'] = stage; e.pop('seg_redo_note', None)
                 e['seg_stage_set'] = datetime.datetime.now().astimezone().isoformat(timespec='seconds')
             if stage is None: e.pop('seg_stage_set', None)
+            if stage in (None, 'Recut'):                                            # recut done / request cancelled: archive pending corrections
+                archive_corrections(c, 'recut' if stage else 'cancelled', datetime.datetime.now().astimezone().isoformat(timespec='seconds'))
             if e: ov[c] = e
             else: ov.pop(c, None)
             print(f'{c}: segmentation stage -> {stage or "(cleared: file-derived)"}')

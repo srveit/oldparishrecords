@@ -530,10 +530,11 @@ LIVE_JS = ' '.join(l.strip() for l in r'''(function(){
    else{var ch=document.querySelector('#stk .chip.segchip');if(ch&&ch.textContent!==c.status)ch.textContent=c.status;}}catch(e){}}
  window.wilmesStatus=onStatus;
  window.oprPage=function(p){if(window.oprBusy||!p||p.code!==C||p.kind!==K||p.rev===REV)return;
-   var op=[].map.call(document.querySelectorAll('details.ent[open]'),function(e){return e.id;}),y=window.scrollY;
+   var op=[].map.call(document.querySelectorAll('details.ent[open]'),function(e){return e.id;}),y=window.scrollY,keep=window.oprKeep?window.oprKeep():null;
    document.body.innerHTML=p.body;
    [].forEach.call(document.body.querySelectorAll('script'),function(s){if(s.id=='openjs')return;var n=document.createElement('script');n.text=s.text;s.parentNode.replaceChild(n,s);});
    op.forEach(function(id){var e=document.getElementById(id);if(e)e.open=true;});
+   if(keep&&window.oprRestore)try{window.oprRestore(keep);}catch(e){}
    var st=document.getElementById('stk');if(st)document.documentElement.style.setProperty('--stkh',st.offsetHeight+'px');
    window.scrollTo(0,y);REV=p.rev;M.content=REV;
    var h=document.querySelector('#stk .hdr');if(h){var u=document.createElement('span');u.id='oprupd';u.className='src';
@@ -618,6 +619,42 @@ def _seg_header(r, st, n, E, ents=()):
     below = (f'<div class="stagenote" style="margin-top:6px;padding:6px 10px;border-radius:6px;background:{col[0]};color:{col[1]};font-weight:600">{E(note)}</div>' if note else '')
     return _sticky(r, 'Segmentation', st, E, btn=(' ' + btn if btn and not btn.startswith(' ') else btn), tail=f' &nbsp; <b>Crops</b> {n}', line2=line2, below=below)
 
+CORR_JS = '(function(){if(window.oprCorr)return;window.oprCorr=1; function C(){var m=document.querySelector(\'meta[name="opr-rev"]\');return m?m.getAttribute(\'data-code\'):\'\';} function box(el){return el&&el.closest?el.closest(\'.corr\'):null;} function reset(b){var p=b.querySelector(\'.corrpanel\');if(!p)return;p.hidden=true;b.removeAttribute(\'data-open\'); [].forEach.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){c.checked=false;});p.querySelector(\'textarea\').value=\'\'; var er=b.querySelector(\'.correrr\');if(er)er.textContent=\'\';var cb=b.querySelector(\'.corrbtn\');if(cb)cb.hidden=false;} function send(b,btn){var p=b.querySelector(\'.corrpanel\'),err=b.querySelector(\'.correrr\'); var iss=[].filter.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){return c.checked;}).map(function(c){return c.value;}); var note=p.querySelector(\'textarea\').value.trim(); if(!iss.length&&!note){err.textContent=\'Tick at least one box or write a note.\';err.style.color=\'#b00020\';return;} if(btn.disabled||window.oprBusy)return;window.oprBusy=true;btn.disabled=true;var lbl=btn.textContent;btn.textContent=\'Sending\\u2026\';err.textContent=\'\'; function fail(t){window.oprBusy=false;btn.disabled=false;btn.textContent=lbl;err.textContent=t;err.style.color=\'#b00020\';} fetch(__URL__,{method:\'POST\',headers:{\'Content-Type\':\'application/json\',\'X-OPR-Approve\':\'1\'},body:JSON.stringify({code:C(),action:\'segmentation_correction\',entry_id:b.getAttribute(\'data-e\'),issues:iss,note:note})}) .then(function(x){if(window.oprAuth&&window.oprAuth.fail(x)){var go=window.oprAuth.login();return {ok:false,_http:401,error:go?\'login required, opening the login page\\u2026\':\'login required, please log in again\'};} return x.json().then(function(j){j._http=x.status;return j;},function(){return {ok:false,error:\'HTTP \'+x.status,_http:x.status};});}) .then(function(j){if(!j.ok){fail(\'Not sent (\'+(j._http||\'?\')+\'): \'+j.error);return;} window.oprBusy=false;b.removeAttribute(\'data-open\');p.hidden=true;reset(b);var cb=b.querySelector(\'.corrbtn\');if(cb)cb.hidden=true; var d=document.createElement(\'span\');d.className=\'chip corrsent\';d.textContent=\'Correction sent \\u00b7 queued\'+(j.recut_request?\' (recut request)\':\'\');b.insertBefore(d,b.firstChild); var pe=b.querySelector(\'.corrpend\');if(pe){pe.textContent=\'Correction pending: \'+(j.issues||[]).concat(j.note?[]:[]).join(\', \');pe.hidden=false;} var ch=document.querySelector(\'#stk .chip.segchip\');if(ch&&j.segmentation){ch.style.cssText=\'background:#dde3ea;color:#34495e;border:1px solid #8a9bb0\';ch.textContent=j.segmentation;}}) .catch(function(e){fail(\'Could not reach the approve service: \'+e);});} document.addEventListener(\'click\',function(ev){var t=ev.target;if(!t||!t.classList)return; if(t.classList.contains(\'corrbtn\')){var b=box(t);b.querySelector(\'.corrpanel\').hidden=false;b.setAttribute(\'data-open\',\'1\');t.hidden=true;var er=b.querySelector(\'.correrr\');if(er)er.textContent=\'\';return;} if(t.classList.contains(\'corrcancel\')){reset(box(t));return;} if(t.classList.contains(\'corrsend\')){send(box(t),t);}}); window.oprKeep=function(){return [].map.call(document.querySelectorAll(\'.corr[data-open]\'),function(b){var p=b.querySelector(\'.corrpanel\'),ta=p.querySelector(\'textarea\'); return {e:b.getAttribute(\'data-e\'),checks:[].filter.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){return c.checked;}).map(function(c){return c.value;}), note:ta.value,focus:document.activeElement===ta,s0:ta.selectionStart,s1:ta.selectionEnd,err:(b.querySelector(\'.correrr\')||{}).textContent||\'\'};});}; window.oprRestore=function(k){(k||[]).forEach(function(o){var b=[].filter.call(document.querySelectorAll(\'.corr\'),function(x){return x.getAttribute(\'data-e\')===o.e;})[0];if(!b)return; var p=b.querySelector(\'.corrpanel\');p.hidden=false;b.setAttribute(\'data-open\',\'1\');var cb=b.querySelector(\'.corrbtn\');if(cb)cb.hidden=true; [].forEach.call(p.querySelectorAll(\'input[type=checkbox]\'),function(c){c.checked=o.checks.indexOf(c.value)>=0;});var ta=p.querySelector(\'textarea\');ta.value=o.note; if(o.err){var er=b.querySelector(\'.correrr\');if(er)er.textContent=o.err;} if(o.focus){ta.focus();try{ta.setSelectionRange(o.s0,o.s1);}catch(e){}}});}; window.oprOnRow=function(c){var cr=c.corrections||{};[].forEach.call(document.querySelectorAll(\'.corr\'),function(b){var pe=b.querySelector(\'.corrpend\');if(!pe)return; var t=cr[b.getAttribute(\'data-e\')];if(t){pe.textContent=\'Correction pending: \'+t;pe.hidden=false;}else if(!b.querySelector(\'.corrsent\')){pe.textContent=\'\';pe.hidden=true;}});}; })();'
+CORR_ISSUES = [('top_cut', 'Top cut off'), ('bottom_cut', 'Bottom cut off'), ('left_cut', 'Left edge cut'), ('right_cut', 'Right edge cut'),
+               ('neighbour', 'Includes part of neighbour entry'), ('merge_above', 'Merge with entry above'), ('merge_below', 'Merge with entry below'),
+               ('split', 'Split this entry'), ('wrong_label', 'Wrong entry number or label'), ('other', 'Other')]
+CORR_CSS = ('.corr{margin-top:6px}.corrbtn{font-size:12px;padding:2px 10px;border:1px solid #b36b00;color:#7a4a00;background:#fff;border-radius:12px;cursor:pointer}'
+            '.corrpanel{border:1px solid #e0a800;background:#fffaf0;border-radius:6px;padding:8px 10px;margin-top:6px;font-size:13px}'
+            '.corrpanel label{display:inline-block;margin:2px 14px 2px 0;white-space:nowrap}.corrpanel textarea{width:100%;box-sizing:border-box;min-height:44px;margin:6px 0;font:inherit}'
+            '.corrpanel button{font-size:13px;padding:3px 12px;margin-right:8px;border-radius:12px;cursor:pointer}.corrsend{border:1px solid #b36b00;background:#b36b00;color:#fff}.corrcancel{border:1px solid #999;background:#fff}'
+            '.corrpend{display:inline-block;background:#fff3cd;color:#7a5300;border:1px solid #ecd47e;border-radius:12px;padding:1px 10px;font-size:12px;font-weight:700;margin-left:6px}'
+            '.corrsent{display:inline-block;background:#dde3ea;color:#34495e;border:1px solid #8a9bb0;border-radius:12px;padding:1px 10px;font-size:12px;font-weight:700;margin-right:6px}.correrr{margin-left:6px;font-weight:700}')
+
+def _corrections(code):
+    """{entry_id: 'top cut off, split this entry; note: “…”'} from entries/_corrections/<code>.json (pending only)."""
+    try: cj = json.load(open(os.path.join(W, 'entries', '_corrections', f'{code}.json'), encoding='utf-8'))
+    except Exception: return {}
+    out = {}
+    for eid, items in (cj.get('pending') or {}).items():
+        if not isinstance(items, list) or not items: continue
+        labs = []
+        for it in items:
+            for l in it.get('issues') or []:
+                if l not in labs: labs.append(l)
+        notes = [str(it.get('note') or '').strip() for it in items if str(it.get('note') or '').strip()]
+        t = ', '.join(labs)
+        if notes: n = notes[-1]; t += ('; ' if t else '') + 'note: “' + (n[:80] + ('…' if len(n) > 80 else '')) + '”'
+        if len(items) > 1: t += f' ({len(items)} flags)'
+        out[eid] = t
+    return out
+
+def _corr_block(eid, pend, E):
+    boxes = ''.join(f'<label><input type="checkbox" value="{k}"> {E(l)}</label>' for k, l in CORR_ISSUES)
+    return (f'<div class="corr" data-e="{E(eid)}"><button type="button" class="corrbtn" title="Report a problem with this crop to the Entry Segmenter">Correct</button>'
+            f'<span class="corrpend"{"" if pend else " hidden"}>{("Correction pending: " + E(pend)) if pend else ""}</span>'
+            f'<div class="corrpanel" hidden>{boxes}<textarea placeholder="Note for the Entry Segmenter (optional if a box is ticked)" maxlength="2000"></textarea>'
+            '<button type="button" class="corrsend">Submit</button><button type="button" class="corrcancel">Cancel</button><span class="correrr"></span></div></div>')
+
 def write_segmentation_pages(rows, man):
     import shutil
     sd = os.path.join(OUT, 'segmentation'); os.makedirs(sd, exist_ok=True); made = []; bundles = []; files = []; pubcodes = set(); _PUB.clear()
@@ -630,6 +667,7 @@ def write_segmentation_pages(rows, man):
         st = str(r['segmentation']['status']); sl = st.lower()
         tq = str(r['transcription']['status']).lower().startswith(('approved', 'draft'))  # transcription page needs the crops
         img = imgs.get(r['code']); ents = sorted(man.get(img, []), key=_seg_key); stg = _stage(sl)
+        corr = _corrections(r['code']); r['segmentation']['corrections'] = corr
         # page + link: Approved/Draft/Recut always; Queued for redo/Redoing only when crops exist (old cut / in progress)
         sq = sl.startswith(('approved', 'draft')) or stg == 'recut' or (stg in ('queued for redo', 'redoing') and bool(ents))
         if not (sq or tq): continue
@@ -651,7 +689,7 @@ def write_segmentation_pages(rows, man):
                           f'<span class="fn">{E(e.get("entry_kind", ""))}</span>'
                           + (f' <span class="lbl">{E(mlab)}</span>' if mlab else '')
                           + (f'<div class="desc">{E(e.get("notes"))}</div>' if e.get('notes') else '')
-                          + f'</figcaption>{tag}</figure>\n')
+                          + f'</figcaption>{tag}' + _corr_block(eid, corr.get(eid), E) + '</figure>\n')
         if tq:                                                        # crops referenced by Stage A but not in the manifest
             for srcs in _stagea_crops(c).values():
                 for src in srcs:
@@ -678,7 +716,8 @@ def write_segmentation_pages(rows, man):
         r['segmentation']['link'] = f'segmentation/{c}.html'
         page = ('<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">' + NOCACHE + '\n'
-            f'<title>Row {E(r["id"])} {E(c)} \u2013 segmentation</title><style>{PAGE_CSS}'
+            f'<script>{CORR_JS.replace("__URL__", _api_js())}</script>'
+            f'<title>Row {E(r["id"])} {E(c)} \u2013 segmentation</title><style>{PAGE_CSS}{CORR_CSS}'
             'figure.crop{margin:0 0 18px;border:1px solid #ddd;border-radius:6px;padding:8px;background:#fafafa}'
             'figure.crop img{max-width:100%;height:auto;display:block;margin-top:6px}'
             '.segchip{display:inline-block;padding:2px 10px;border-radius:12px;font-size:13px;font-weight:700}'
@@ -836,6 +875,12 @@ def build_meta(rows, now):
         ('Recut with latest algorithm', 'Only for Approved rows with no redo stage. Sets <code>segmentation: Queued for redo</code> in <code>overrides.json</code> (backup <code>.bakN</code>) and, if a transcription exists, '
          'puts it <b>On hold until crops approved</b>. Log + queue line <code>action: recut</code>. Never touches manifests or Stage A/B. Next: the Entry Segmenter re-cuts '
          '(Queued for redo \u2192 Redoing \u2192 Recut), then the row is approved again.'),
+        ('Correct (per crop, segmentation pages)', 'Opens an inline panel (top/bottom/left/right cut, neighbour ink, merge above/below, split, wrong label, other + note). '
+         'Stores the flag in <code>entries/_corrections/&lt;code&gt;.json</code> (pending, several per row/entry; backup in <code>_approve_backups/segmentation_correction/</code>) '
+         'and sets the row to <b>Queued for redo</b> (left alone if already Queued/Redoing) with the recut-style transcription hold (<code>overrides.json</code> backup <code>.bakN</code>). '
+         'Refused (409) for a locked crop unless the whole row is Approved; on an Approved row it becomes a recut request (<code>recut_request: true</code>). '
+         'Queue <code>kind: segmentation_correction</code>. Each flagged crop shows an amber <b>Correction pending</b> chip. Next: the Entry Segmenter re-cuts; '
+         '<code>setseg.py &lt;code&gt; recut</code> archives the row\u2019s corrections (<code>entries/_corrections/archive/</code>), <code>setseg.py &lt;code&gt; clear</code> cancels them. Never touches manifests, crops or Stage A/B.'),
         ('\u2713 Confirm reading', 'Removes exactly one <code>[?]</code> from the token in the Stage A text; backup in <code>_approve_backups/confirm_reading/</code>; record in '
          '<code>_confirmed_readings.json</code>, pending item in <code>_feedback_status.json</code>. Queue <code>kind: reading_confirmed</code>. Next: the Entry Transcriber '
          'updates the item (processing \u2192 done) and must not re-add the <code>[?]</code>.'),
@@ -872,6 +917,8 @@ def build_meta(rows, now):
         '<code>stageA/&lt;code&gt;/</code> or <code>stageB/&lt;code&gt;/</code> (confirm-reading also restores <code>_confirmed_readings.json</code> and <code>_feedback_status.json</code>; '
         'per-entry: remove the entry from <code>_entry_approvals.json</code>).',
         'Recut: <code>setseg.py &lt;code&gt; clear</code> or restore <code>overrides.json.bakN</code>.',
+        'Correction: <code>setseg.py &lt;code&gt; clear</code> (archives the pending corrections as cancelled and removes the stage/hold), or restore '
+        '<code>entries/_corrections/&lt;code&gt;.json</code> and <code>overrides.json</code> from <code>_approve_backups/segmentation_correction/&lt;code&gt;_&lt;ts&gt;/</code>.',
         'Hold <code>entries/.manifest.lock</code> while restoring, then run <code>status.py</code>. Queue lines are append-only: tell Chief to disregard the line.'])))
     return ''.join(h)
 
