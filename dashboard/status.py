@@ -31,18 +31,52 @@ def seg(img, man):
         return 'Queued (page layout running)', 'Stage 0 files present, no crops yet'
     return None, ''
 
+# Stage A folder per row code. Normally stageA/<code>; some rows live in a town-prefixed folder (W-S0036 -> Warstein_S0036).
+# Explicit aliases first, then a unique '<Town>_<rest>' folder whose town starts with the code's prefix letter. Files are never moved.
+STAGEA_ALIASES = {'W-S0036': 'Warstein_S0036'}
+def _sa(code):
+    base = os.path.join(W, 'stageA')
+    d = os.path.join(base, code)
+    if os.path.isdir(d): return d
+    a = STAGEA_ALIASES.get(code)
+    if a and os.path.isdir(os.path.join(base, a)): return os.path.join(base, a)
+    m = re.fullmatch(r'([A-Za-z])-(\w+)', code or '')
+    if m:
+        c = [n for n in (os.listdir(base) if os.path.isdir(base) else []) if n.endswith('_' + m.group(2)) and n[:1].upper() == m.group(1).upper()
+             and os.path.isdir(os.path.join(base, n))]
+        if len(c) == 1: return os.path.join(base, c[0])
+    return d
+def _sa_md(code):
+    """Path of the Stage A summary .md (<code>_stageA.md, or <folder>_stageA.md for an aliased folder); '' if none."""
+    d = _sa(code)
+    for n in (f'{code}_stageA.md', f'{os.path.basename(d)}_stageA.md'):
+        if os.path.isfile(os.path.join(d, n)): return os.path.join(d, n)
+    return ''
+
+STALL_MIN = 60   # 'In progress (stalled?)' when dispatched, no diplomatic JSON yet and _work unchanged this long
 def trans(code, img, man):
-    d = os.path.join(W, 'stageA', code)
-    if not os.path.isdir(d) or not glob.glob(os.path.join(d, '*.diplomatic.json')):
-        try: sent = set(json.load(open(os.path.join(D, 'auto_transcribe_sent.json'))).get('dispatched', []))
-        except Exception: sent = set()
-        if img in sent or f'{img}_L' in sent or f'{img}_R' in sent or seg(img, man)[0] == 'Approved':
+    d = _sa(code)
+    js = glob.glob(os.path.join(d, '*.diplomatic.json')) if os.path.isdir(d) else []
+    need = {e['entry_id'] for e in man.get(img, []) if e.get('entry_kind') != 'blank'}
+    wk = os.path.join(d, '_work')
+    wfiles = [os.path.join(r, f) for r, _, fs in os.walk(wk) for f in fs] if os.path.isdir(wk) else []
+    try: sent = set(json.load(open(os.path.join(D, 'auto_transcribe_sent.json'))).get('dispatched', []))
+    except Exception: sent = set()
+    dispatched = img in sent or f'{img}_L' in sent or f'{img}_R' in sent
+    tot = len(need) or '?'
+    if not js:
+        if wfiles:
+            newest = max(os.path.getmtime(f) for f in wfiles)
+            age = (datetime.datetime.now().timestamp() - newest) / 60
+            last = datetime.datetime.fromtimestamp(newest).strftime('%H:%M')
+            if dispatched and age > STALL_MIN:
+                return 'In progress (stalled?)', f'no entry finished yet; _work unchanged since {last} ({int(age)} min)'
+            return f'In progress (0/{tot} entries)', f'Transcriber working in _work ({len(wfiles)} files, last change {last})'
+        if dispatched or seg(img, man)[0] == 'Approved':
             return 'Queued', 'segmentation approved; sent to transcriber'
         return None, ''
-    js = glob.glob(os.path.join(d, '*.diplomatic.json'))
-    need = {e['entry_id'] for e in man.get(img, []) if e.get('entry_kind') != 'blank'}
     have = {os.path.basename(p)[:-len('.diplomatic.json')] for p in js}
-    md = glob.glob(os.path.join(d, f'{code}_stageA.md'))
+    md = _sa_md(code)
     if need and need <= have and md:
         st = set()
         for p in js:
@@ -50,7 +84,7 @@ def trans(code, img, man):
             except Exception: st.add('?')
         if st and st <= {'approved', 'locked', 'final'}: return 'Approved', f'{len(have)} entries approved'
         return 'Draft', f'{len(have & need)}/{len(need)} entries'
-    return 'In progress', f'{len(have & need)}/{len(need) or "?"} entries' + ('' if md else ', no summary .md yet')
+    return f'In progress ({len(have & need)}/{tot} entries)', ('' if md else 'no summary .md yet') + (f'; {len(wfiles)} files in _work' if wfiles else '')
 
 def extr(code, img):
     hits = []
@@ -87,7 +121,7 @@ def _etag(eid):
     m = _re.search(r'((?:[LR]_)?e\d+)$', str(eid)); return m.group(1) if m else str(eid)
 
 def _stagea_text(code):
-    d = os.path.join(W, 'stageA', code); blocks = []
+    d = _sa(code); blocks = []
     for p in sorted(glob.glob(os.path.join(d, '*.diplomatic.json')), key=lambda q: (_enum(os.path.basename(q)), q)):
         try: j = json.load(open(p, encoding='utf-8'))
         except Exception as ex: blocks.append(f'--- {os.path.basename(p)}: unreadable ({ex}) ---'); continue
@@ -97,8 +131,8 @@ def _stagea_text(code):
         if j.get('diplomatic_margin'): t += '\n[margin] ' + str(j['diplomatic_margin'])
         blocks.append(t)
     if blocks: return '\n\n'.join(blocks), 'Stage A diplomatic JSON (diplomatic_text)'
-    md = os.path.join(d, f'{code}_stageA.md')
-    if os.path.isfile(md): return open(md, encoding='utf-8').read(), f'{code}_stageA.md'
+    md = _sa_md(code)
+    if md: return open(md, encoding='utf-8').read(), os.path.basename(md)
     return '(no Stage A transcription found)', 'none'
 
 NOCACHE = ('<meta name="robots" content="noindex,nofollow">'   # hidden page (also served at oldparishrecords.com/dashboard)
@@ -134,7 +168,7 @@ PAGE_CSS = ('body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:20
 
 def _stagea_entries(code):
     """{entry_no: [(tag, label, text), ...]} from Stage A diplomatic JSON (several parts when an entry spans L/R faces)."""
-    d = os.path.join(W, 'stageA', code); out = {}
+    d = _sa(code); out = {}
     for p in sorted(glob.glob(os.path.join(d, '*.diplomatic.json')), key=lambda q: (_enum(os.path.basename(q)), q)):
         try: j = json.load(open(p, encoding='utf-8'))
         except Exception as ex: out.setdefault(_enum(os.path.basename(p)), []).append((os.path.basename(p), '', f'(unreadable: {ex})')); continue
@@ -176,7 +210,7 @@ def write_extraction_pages(rows):
         booku = f"{MBASE}{r['collection']}/{r['book']}/?pg=1"      # title page (BOOKPG in index.html: all books = 1)
         sa = _stagea_entries(c); mdfull = ''
         if not sa:
-            md = os.path.join(W, 'stageA', c, f'{c}_stageA.md')
+            md = _sa_md(c) or os.path.join(_sa(c), f'{c}_stageA.md')
             if os.path.isfile(md): mdfull = open(md, encoding='utf-8').read()
         sb = _stageb_records(c)
         nrec = sum(len(v) for v in sb.values()); secs = []
@@ -256,7 +290,7 @@ DETAILS_CSS = ('details.ent{border:1px solid #d5dce8;border-radius:6px;margin:0 
 
 def _sa_summary(code, n):
     """(date, name) from Stage A JSON fields for entry n, if present."""
-    for p in glob.glob(os.path.join(W, 'stageA', code, f'*_e{n}.diplomatic.json')):
+    for p in glob.glob(os.path.join(_sa(code), f'*_e{n}.diplomatic.json')):
         try: j = json.load(open(p, encoding='utf-8'))
         except Exception: continue
         dt = next((str(j[k]) for k in ('date_iso', 'event_date_iso', 'date', 'event_date') if j.get(k)), '')
@@ -271,7 +305,7 @@ TOKRE = _re.compile(r'([^\s\[\]|()]+)\[\?\]')          # must match approve_serv
 
 def _stagea_parts(code):
     """{entry_no: [(tag, label, entry_id, locked, [(field, text), ...]), ...]} from the per-entry Stage A JSON files."""
-    d = os.path.join(W, 'stageA', code); out = {}
+    d = _sa(code); out = {}
     for p in sorted(glob.glob(os.path.join(d, '*.diplomatic.json')), key=lambda q: (_enum(os.path.basename(q)), q)):
         eid = os.path.basename(p)[:-len('.diplomatic.json')]
         try: j = json.load(open(p, encoding='utf-8'))
@@ -283,7 +317,7 @@ def _stagea_parts(code):
     return out
 
 def _confirmed(code):
-    try: v = json.load(open(os.path.join(W, 'stageA', code, '_confirmed_readings.json'), encoding='utf-8'))
+    try: v = json.load(open(os.path.join(_sa(code), '_confirmed_readings.json'), encoding='utf-8'))
     except Exception: return []
     return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
 
@@ -309,7 +343,7 @@ def _render_tokens(text, eid, field, conf, E, regained):
 
 def _feedback(code):
     """Tolerant reader of stageA/<code>/_feedback_status.json -> {entry_id: {state, oldest_pending, updated_at}}."""
-    try: fb = json.load(open(os.path.join(W, 'stageA', code, '_feedback_status.json'), encoding='utf-8'))
+    try: fb = json.load(open(os.path.join(_sa(code), '_feedback_status.json'), encoding='utf-8'))
     except Exception: return {}
     out = {}
     for eid, v in (fb.items() if isinstance(fb, dict) else []):
@@ -357,7 +391,7 @@ def write_transcription_pages(rows, man=None):
     imgs = {x['code']: x['image_id'] for x in json.load(open(os.path.join(D, 'records.json')))['records']}
     for r in rows:
         st = str(r['transcription']['status']); sl = st.lower()
-        na, nal = _json_field_counts(glob.glob(os.path.join(W, 'stageA', r['code'], '*.diplomatic.json')), 'status')
+        na, nal = _json_field_counts(glob.glob(os.path.join(_sa(r['code']), '*.diplomatic.json')), 'status')
         if not (sl.startswith('approved') or sl.startswith('draft')): continue
         c = r['code']; r['transcription']['link'] = f'transcription/{c}.html'
         sa = _stagea_parts(c); sb = _stageb_records(c); mdfull = ''; scr = _stagea_crops(c); pub = _PUB.get(c, {})
@@ -366,7 +400,7 @@ def write_transcription_pages(rows, man=None):
         r['transcription']['entries'] = ents; r['transcription']['feedback'] = _feedback(c)
         if draft and ents: r['transcription']['progress'] = f"{sum(v == 'locked' for v in ents.values())}/{len(ents)}"
         if not sa:
-            md = os.path.join(W, 'stageA', c, f'{c}_stageA.md')
+            md = _sa_md(c) or os.path.join(_sa(c), f'{c}_stageA.md')
             mdfull = open(md, encoding='utf-8').read() if os.path.isfile(md) else '(no Stage A transcription found)'
         klab = {}
         for e in man.get(imgs.get(c), []):
@@ -437,7 +471,7 @@ _PUB = {}   # code -> {abs source path | source stem: ('<code>/<file>.jpg', sour
 def _stagea_crops(code):
     """{entry_no: [crop source paths in L-then-R order]} referenced by Stage A diplomatic JSON."""
     out = {}
-    for p in sorted(glob.glob(os.path.join(W, 'stageA', code, '*.diplomatic.json')), key=lambda q: (_enum(os.path.basename(q)), q)):
+    for p in sorted(glob.glob(os.path.join(_sa(code), '*.diplomatic.json')), key=lambda q: (_enum(os.path.basename(q)), q)):
         try: j = json.load(open(p, encoding='utf-8'))
         except Exception: continue
         srcs = []

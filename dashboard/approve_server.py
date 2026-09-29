@@ -30,6 +30,18 @@ EXTRACTION_APPROVE_ENABLED = True          # Stephen 2026-09-29: extraction Appr
 NOTIFY_QUEUE = os.path.join(DASH, 'notify_queue.jsonl')
 BACKUPS = os.environ.get('OPR_BACKUPS', os.path.join(os.path.dirname(STAGEA), '_approve_backups'))
 LOCKED_VALUES = {'locked', 'approved', 'final'}
+
+STAGEA_ALIASES = {'W-S0036': 'Warstein_S0036'}     # same mapping as status.py _sa(): row code -> town-prefixed Stage A folder
+def _sa(code):
+    d = os.path.join(STAGEA, str(code))
+    if os.path.isdir(d): return d
+    a = STAGEA_ALIASES.get(code)
+    if a and os.path.isdir(os.path.join(STAGEA, a)): return os.path.join(STAGEA, a)
+    m = re.fullmatch(r'([A-Za-z])-(\w+)', code or '')
+    if m and os.path.isdir(STAGEA):
+        c = [n for n in os.listdir(STAGEA) if n.endswith('_' + m.group(2)) and n[:1].upper() == m.group(1).upper() and os.path.isdir(os.path.join(STAGEA, n))]
+        if len(c) == 1: return os.path.join(STAGEA, c[0])
+    return d
 LOCKFILE = os.path.join(ENTRIES, '.manifest.lock')      # shared lock convention for manifest writers
 ALLOWED_ORIGINS = {'http://grokbot-box.taileabb91.ts.net', 'https://grokbot-box.taileabb91.ts.net', 'http://grokbot-box',
                    'http://127.0.0.1:8080', 'http://localhost:8080', 'null', 'file://',
@@ -306,7 +318,7 @@ def stage_approve(code, action, client):
     if not cur.lower().startswith('draft'):
         raise Reject(f'{code}: {action} is {cur!r}; only Draft rows can be approved; nothing changed', 409)
     if action == 'transcription':
-        d = os.path.join(STAGEA, code); pat = '*.diplomatic.json'; skey = 'status'
+        d = _sa(code); pat = '*.diplomatic.json'; skey = 'status'
     else:
         d = os.path.join(STAGEB, code); pat = '*.json'; skey = 'stage_b_status'
     lf = open(LOCKFILE, 'a+'); t0 = time.time()
@@ -397,7 +409,7 @@ def recut(code, client):
         if not seg.lower().startswith('approved') or e.get('segmentation'):
             raise Reject(f'{code}: segmentation is {e.get("segmentation") or seg!r}; a recut can only be requested for an Approved row with no redo stage; nothing changed', 409)
         tr = str(row.get('transcription', {}).get('status', ''))
-        has_files = bool(glob.glob(os.path.join(STAGEA, code, '*.diplomatic.json')) or glob.glob(os.path.join(STAGEB, code, '*.json')))
+        has_files = bool(glob.glob(os.path.join(_sa(code), '*.diplomatic.json')) or glob.glob(os.path.join(STAGEB, code, '*.json')))
         hold = has_files or tr.lower() != 'not started'
         stamp_t = now_ct(); ob = next_bak(op); shutil.copy2(op, ob)
         e['segmentation'] = 'Queued for redo'; e['seg_stage_set'] = stamp_t
@@ -466,7 +478,7 @@ def segmentation_correction(code, entry_id, issues, note, client):
         if str(stage or '').lower() in ('queued for redo', 'redoing'): new_stage = stage          # leave the stage, just add the correction
         else:
             new_stage = 'Queued for redo'; e['segmentation'] = new_stage; e['seg_stage_set'] = stamp_t; changed_ov = True
-            has_files = bool(glob.glob(os.path.join(STAGEA, code, '*.diplomatic.json')) or glob.glob(os.path.join(STAGEB, code, '*.json')))
+            has_files = bool(glob.glob(os.path.join(_sa(code), '*.diplomatic.json')) or glob.glob(os.path.join(STAGEB, code, '*.json')))
             if (has_files or tr.lower() != 'not started') and e.get('transcription') != HOLD:
                 e['prev_transcription'] = tr; e['prev_transcription_override'] = e.get('transcription')
                 e['transcription'] = HOLD; e['hold_set'] = stamp_t; hold = True
@@ -533,7 +545,7 @@ def _backup(action, code, paths):
 
 def _entry_file(code, entry_id):
     if not re.fullmatch(r'[A-Za-z0-9_.\-]+', entry_id or ''): raise Reject('bad entry_id', 400)
-    p = os.path.join(STAGEA, code, entry_id + '.diplomatic.json')
+    p = os.path.join(_sa(code), entry_id + '.diplomatic.json')
     if not os.path.isfile(p): raise Reject(f'{code}: no Stage A file for {entry_id}; nothing changed', 409)
     return p
 
@@ -558,7 +570,7 @@ def _row_meta(code):
     return rows[code]
 
 def _feedback_add(code, entry_id, token, occurrence, stamp_t):
-    fp = os.path.join(STAGEA, code, '_feedback_status.json')
+    fp = os.path.join(_sa(code), '_feedback_status.json')
     try: fb = json.load(open(fp, encoding='utf-8'))
     except Exception: fb = {}
     e = fb.get(entry_id) if isinstance(fb.get(entry_id), dict) else {}
@@ -578,7 +590,7 @@ def approve_transcription_entry(code, entry_id, client):
         if str(j.get('status', '')).lower() in LOCKED_VALUES: raise Reject(f'{entry_id} is already locked; nothing changed', 409)
         stamp_t = now_ct(); stamp = f'Stephen dashboard Approve {stamp_t}'
         new = set_toplevel(raw, {'status': 'locked', 'locked_by': stamp, 'locked_at': stamp_t}, 'status')
-        ap = os.path.join(STAGEA, code, '_entry_approvals.json')
+        ap = os.path.join(_sa(code), '_entry_approvals.json')
         bdir = _backup('approve_transcription_entry', code, [p, ap])
         atomic_write(p, new)
         nj = json.load(open(p, encoding='utf-8')); j.update({'status': 'locked', 'locked_by': stamp, 'locked_at': stamp_t})
@@ -587,7 +599,7 @@ def approve_transcription_entry(code, entry_id, client):
         except Exception: al = []
         al.append({'entry_id': entry_id, 'time': stamp_t, 'by': 'Stephen dashboard'}); _atomic_json(ap, al)
         rec = next((x for x in json.load(open(os.path.join(DASH, 'records.json'), encoding='utf-8'))['records'] if x['code'] == code), {})
-        files = sorted(glob.glob(os.path.join(STAGEA, code, '*.diplomatic.json')))
+        files = sorted(glob.glob(os.path.join(_sa(code), '*.diplomatic.json')))
         nl = sum(1 for q in files if str(json.load(open(q, encoding='utf-8')).get('status', '')).lower() in LOCKED_VALUES)
         with open(os.path.join(ENTRIES, '_approvals.log'), 'a') as f:
             f.write(f'{stamp_t}\taction=approve_transcription_entry\trow {row.get("id")}\t{code}\t{entry_id}\tlocked_by={stamp}\tclient={client}\n')
@@ -635,7 +647,7 @@ def confirm_reading(code, entry_id, field, token, occurrence, ctx, client):
     if not cur.lower().startswith(('draft', 'approved')): raise Reject(f'{code}: transcription is {cur!r}; nothing changed', 409)
     if not token or '[?]' in token or not isinstance(occurrence, int) or occurrence < 1: raise Reject('bad token/occurrence', 400)
     md = entry_id == f'{code}_stageA.md'
-    if md: p = os.path.join(STAGEA, code, f'{code}_stageA.md'); field = 'md'
+    if md: p = os.path.join(_sa(code), f'{code}_stageA.md'); field = 'md'
     else:
         p = _entry_file(code, entry_id)
         if field not in ('diplomatic_text', 'diplomatic_margin'): raise Reject('bad field', 400)
@@ -664,7 +676,7 @@ def confirm_reading(code, entry_id, field, token, occurrence, ctx, client):
             a, b = json.loads(raw), json.loads(new); a[field] = s_val[:k] + s_val[k + 3:]
             if a != b: raise Reject('internal check failed: other fields would change; nothing changed', 500)
         stamp_t = now_ct()
-        cr = os.path.join(STAGEA, code, '_confirmed_readings.json'); fbp = os.path.join(STAGEA, code, '_feedback_status.json')
+        cr = os.path.join(_sa(code), '_confirmed_readings.json'); fbp = os.path.join(_sa(code), '_feedback_status.json')
         bdir = _backup('confirm_reading', code, [p, cr, fbp])
         atomic_write(p, new.encode('utf-8'))
         cb, ca = s_val[max(0, m.start(1) - 40):m.start(1)], s_val[m.end():m.end() + 40]
