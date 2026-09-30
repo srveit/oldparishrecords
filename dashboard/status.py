@@ -1714,7 +1714,7 @@ def build_meta(rows, now):
          'the last entry flips the row to Approved (extra <code>expansion_approved</code> line with <code>auto_flip: true</code>).'),
         ('\uff0b Add row / Edit details / Delete', 'Button below the table (end of the card list on phones). Inline form: Name and Record type required. '
          '<code>add_row</code> writes a records.json row (group <b>Added rows</b>, code <code>N</code>+4-digit id, ids never reused: <code>records_meta.json</code> high-water + <code>_deleted_rows.jsonl</code>), '
-         'backup <code>records.json.bakN</code>, log line, queue <code>kind: row_added</code>. Research chip \U0001F50D Researching until the page is found (<code>setresearch.py</code>). '
+         'backup <code>records.json.bakN</code>, log line, queue <code>kind: row_added</code>. New rows start with <b>no research value</b> (no chip); research starts only when asked: Chief sets \U0001F50D Researching with <code>setresearch.py</code>, then \u2713 Page found. '
          'When book, image and page are all filled in (Edit details / <code>update_row</code> or Chief\u2019s <code>updaterow.py</code>): Research \u2713 Page found, Segmentation Queued, one queue line '
          '<code>kind: segmentation_requested</code> (never repeated for the same book|image|page). <code>delete_row</code> only for added rows with no pipeline work (409 otherwise), queue <code>kind: row_deleted</code>.'),
         ('Extraction Approve', 'Locks the row\u2019s Stage B records (<code>stage_b_status</code>); backup in <code>_approve_backups/extraction/</code>; log + queue line <code>action: extraction</code>.'),

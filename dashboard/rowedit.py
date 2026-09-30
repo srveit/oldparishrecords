@@ -296,7 +296,7 @@ def _add_locked(ctx, recs, f, name, typ, client, after_person=None, extra_event=
         if f.get('diocese') and not rec.get('diocese') and not rec.get('collection'): rec['diocese'] = str(f['diocese'])[:40]   # hint copied from the person's row
         rec['person_id'] = pid
         if pk != 'person': rec['person_kind'] = pk
-        rec.update({'added_by': BY, 'added_at': stamp, 'research': 'Researching'})
+        rec.update({'added_by': BY, 'added_at': stamp, 'research': ''})   # no auto-research (Stephen 2026-09-30); Chief sets it with setresearch.py
         events = [{k: v for k, v in (('kind', 'row_added'), ('row', nid), ('code', code), ('name', name), ('record_type', typ),
                    ('parish', rec.get('town', '')), ('book', rec['book']), ('page', rec['page']), ('time', stamp), ('by', BY))
                    if k not in ('parish', 'book', 'page') or v}]
@@ -328,7 +328,7 @@ def plus_menu(recs, pid):
 PLUS_DEDUPE_S = 5
 def person_plus(ctx, code, record_type, client='dashboard'):
     """＋ beside a name: one new row for the same person (name, group, person_id, town/diocese), the chosen type, blank
-    book/image/page/date, research Researching, placed directly under the person's last row. Same person+type within 5 s -> the
+    book/image/page/date, no research value, placed directly under the person's last row. Same person+type within 5 s -> the
     row just made is returned (deduped, nothing written)."""
     t = LEGACY_TYPES.get(str(record_type or '').strip(), str(record_type or '').strip())
     if t not in PLUS_TYPES: raise RowError('record type must be one of ' + ', '.join(PLUS_TYPES), 400)
