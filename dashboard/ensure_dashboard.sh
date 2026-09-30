@@ -28,3 +28,5 @@ code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:8080
 [ -x /workspace/opr-dashboard-auth/ensure_auth.sh ] && /workspace/opr-dashboard-auth/ensure_auth.sh
 # OPR approval webhook watcher (Chief Geneologist): keeps the approved-transcription -> webhook poster running (idempotent).
 [ -x /workspace/opr-approval-webhook/ensure_watcher.sh ] && /workspace/opr-approval-webhook/ensure_watcher.sh
+# Auto-transcribe watcher (replaces the "Wilmes auto-transcribe on segmentation lock" routine): fully locked pages -> webhook (idempotent).
+[ -x /workspace/opr-approval-webhook/ensure_auto_transcribe.sh ] && /workspace/opr-approval-webhook/ensure_auto_transcribe.sh
