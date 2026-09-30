@@ -1532,12 +1532,15 @@ def _added_info(r, ov):
         import rowedit as RE
         why = RE.work(RE.Ctx(W, D), r); dup = RE.same_page(RE.Ctx(W, D), r)
     except Exception as ex: why, dup = [f'check failed: {ex}'], []
-    rs = str(r.get('research') or '')
-    return {'added': {'by': r.get('added_by'), 'at': r.get('added_at'), 'notes': r.get('notes', ''), 'book_url': r.get('book_url', ''),
+    return {'research': _research_cell(r), 'added': {'by': r.get('added_by'), 'at': r.get('added_at'), 'notes': r.get('notes', ''), 'book_url': r.get('book_url', ''),
                       'page_url': r.get('url', ''), 'type_raw': r.get('type', ''), 'seg_requested': r.get('seg_requested', ''),
-                      'deletable': not why, 'work': why, 'same_page': dup},
-            'research': ({'status': rs, 'detail': {'Researching': 'Chief is looking for the book and page',
-                                                  'Page found': 'book, image and page are known'}.get(rs, ''), 'source': 'records.json'} if rs else None)}
+                      'deletable': not why, 'work': why, 'same_page': dup}}
+
+def _research_cell(r):
+    """records.json 'research' (any row) -> chip data, or None when unset."""
+    rs = str(r.get('research') or '')
+    return ({'status': rs, 'detail': {'Researching': 'Chief is looking for the book and page',
+                                      'Page found': 'book, image and page are known'}.get(rs, ''), 'source': 'records.json'} if rs else None)
 
 def main():
     try:                                   # Stephen's recorded reading choices survive a Transcriber/Extractor rewrite
@@ -1575,7 +1578,7 @@ def main():
         rows.append({**{k: r[k] for k in ('id', 'group', 'name', 'spouse', 'date', 'type', 'book', 'image', 'page', 'code')},
                      'person_id': r.get('person_id') or '', 'person_kind': r.get('person_kind') or 'person', 'tslot': _tslot(r.get('type')),
                      'town': r.get('town') or towns.get(r['book'], ''), 'record_type': record_type(r), 'image_id': img,
-                     **mlink(r), **cells, **(_added_info(r, ov) if added else {})})
+                     **mlink(r), **cells, 'research': _research_cell(r), **(_added_info(r, ov) if added else {})})
     os.makedirs(OUT, exist_ok=True); write_segmentation_pages(rows, man); write_extraction_pages(rows, man); write_transcription_pages(rows, man); write_expansion_pages(rows)   # segmentation first: fills _PUB (crops for extraction title rows); also sets .link on linked chips
     now = datetime.datetime.now().astimezone()
     data = {'generated_at': now.isoformat(timespec='seconds'), 'generated_epoch': int(now.timestamp()),
@@ -1717,6 +1720,12 @@ def build_meta(rows, now):
          'backup <code>records.json.bakN</code>, log line, queue <code>kind: row_added</code>. New rows start with <b>no research value</b> (no chip); research starts only when asked: Chief sets \U0001F50D Researching with <code>setresearch.py</code>, then \u2713 Page found. '
          'When book, image and page are all filled in (Edit details / <code>update_row</code> or Chief\u2019s <code>updaterow.py</code>): Research \u2713 Page found, Segmentation Queued, one queue line '
          '<code>kind: segmentation_requested</code> (never repeated for the same book|image|page). <code>delete_row</code> only for added rows with no pipeline work (409 otherwise), queue <code>kind: row_deleted</code>.'),
+        ('\U0001F50D Start research', 'Blue-outlined button in the Name cell of any row (table and cards) while <b>book and page are both empty</b> and research is not already '
+         '\U0001F50D Researching; it disappears once a book or page is entered. One click, no confirmation; disabled while saving. Action <code>start_research</code> on the approve API '
+         '(same origin / <code>X-OPR-Approve</code> / login checks). Under the rowedit lock: research \u2192 <b>Researching</b> (the same write as <code>setresearch.py</code>), '
+         'backup <code>records.json.bakN</code>, log line <code>action=start_research</code>, ONE queue line <code>kind: research_requested</code> (row, code, name, record_type, '
+         'parish if known, time, by). Refused (409, shown inline) if a book or page is already filled or the row is already Researching, so a repeat never queues twice. '
+         'The button turns into the grey \U0001F50D Researching chip at once, the table refreshes, and the empty Book/Image/Page cells show \U0001F50D Searching\u2026 until Chief finds the page.'),
         ('Extraction Approve', 'Locks the row\u2019s Stage B records (<code>stage_b_status</code>); backup in <code>_approve_backups/extraction/</code>; log + queue line <code>action: extraction</code>.'),
         ('Recut with latest algorithm', 'Only for Approved rows with no redo stage. Sets <code>segmentation: Queued for redo</code> in <code>overrides.json</code> (backup <code>.bakN</code>) and, if a transcription exists, '
          'puts it <b>On hold until crops approved</b>. Log + queue line <code>action: recut</code>. Never touches manifests or Stage A/B. Next: the Entry Segmenter re-cuts '

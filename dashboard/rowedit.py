@@ -420,15 +420,44 @@ def delete_row(ctx, code, client='cli'):
         return {'ok': True, 'action': 'delete_row', 'row': rec['id'], 'code': code, 'records_backup': bak, 'events': [evt], 'time': stamp}
     finally: unlock(lf)
 
+RESEARCH_STATES = {'researching': 'Researching', 'found': 'Page found', 'page found': 'Page found', 'clear': ''}
+def _apply_research(rec, v):
+    """The one place a row's research value is written (setresearch.py and the dashboard's Start research)."""
+    if v: rec['research'] = v
+    else: rec.pop('research', None)
+
 def set_research(ctx, code, value, client='cli'):
-    v = {'researching': 'Researching', 'found': 'Page found', 'page found': 'Page found', 'clear': ''}.get(str(value).strip().lower())
+    v = RESEARCH_STATES.get(str(value).strip().lower())
     if v is None: raise RowError(f'unknown research state {value!r}; use researching | found | clear', 400)
     lf = lock(ctx)
     try:
         recs = load(ctx); rec = _find(recs, code); stamp = now_ct()
-        if v: rec['research'] = v
-        else: rec.pop('research', None)
+        _apply_research(rec, v)
         bak = save(ctx, recs)
         log(ctx, stamp, 'set_research', rec['id'], code, f'research -> {v or "(cleared)"}', client)
         return {'ok': True, 'row': rec['id'], 'code': code, 'research': v, 'records_backup': bak}
+    finally: unlock(lf)
+
+def start_research(ctx, code, client='dashboard'):
+    """Dashboard '🔍 Start research' (any row): only while book AND page are both empty and research is not already
+    'Researching'. Under the lock: research -> 'Researching' (same write as setresearch.py), records.json backup, one
+    _approvals.log line and ONE notify line {kind: research_requested, row, code, name, record_type, parish?, time, by}.
+    A repeat on a row that is already Researching is refused (409) and writes nothing, so a double click can't queue twice."""
+    lf = lock(ctx)
+    try:
+        recs = load(ctx); rec = _find(recs, code)
+        if str(rec.get('book') or '').strip() or str(rec.get('page') or '').strip():
+            raise RowError(f'{code}: a book or page is already entered; research is not needed; nothing changed', 409)
+        if rec.get('research') == 'Researching':
+            raise RowError(f'{code}: research is already running (Researching); nothing changed', 409)
+        stamp = now_ct()
+        _apply_research(rec, 'Researching')
+        bak = save(ctx, recs)
+        log(ctx, stamp, 'start_research', rec['id'], code, 'research -> Researching (Start research button)', client)
+        ev = {k: v for k, v in (('kind', 'research_requested'), ('row', rec['id']), ('code', code), ('name', rec.get('name', '')),
+                                ('record_type', rec.get('type', '')), ('parish', str(rec.get('town') or '').strip()), ('time', stamp), ('by', BY))
+              if k != 'parish' or v}
+        notify(ctx, ev)
+        return {'ok': True, 'action': 'start_research', 'row': rec['id'], 'code': code, 'research': 'Researching',
+                'records_backup': bak, 'events': [ev], 'time': stamp}
     finally: unlock(lf)

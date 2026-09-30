@@ -805,6 +805,7 @@ def row_action(action, body, client):
     try:
         if action == 'add_row': res = RE.add_row(ctx, f, client)
         elif action == 'update_row': res = RE.update_row(ctx, str(body.get('code') or ''), f, client)
+        elif action == 'start_research': res = RE.start_research(ctx, str(body.get('code') or ''), client)
         elif action == 'person_plus': res = RE.person_plus(ctx, str(body.get('code') or ''), str(body.get('record_type') or ''), client)
         else: res = RE.delete_row(ctx, str(body.get('code') or ''), client)
     except RE.RowError as ex: raise Reject(str(ex), ex.http)
@@ -904,7 +905,7 @@ class H(http.server.BaseHTTPRequestHandler):
             code = str(body['code'] if 'code' in body else ('' if body.get('action') == 'add_row' else body['code'])).strip(); action = str(body.get('action') or 'segmentation').strip()
         except Exception: return s.reply(400, {'ok': False, 'error': 'bad request: JSON body {"code": ...} required'}, origin)
         if action not in ('segmentation', 'transcription', 'extraction', 'recut', 'approve_transcription_entry', 'confirm_reading', 'selftest', 'segmentation_correction', 'choose_reading', 'edit_reading', 'undo_reading',
-                          'approve_expansion', 'approve_expansion_entry', 'add_row', 'update_row', 'delete_row', 'person_plus'):
+                          'approve_expansion', 'approve_expansion_entry', 'add_row', 'update_row', 'delete_row', 'person_plus', 'start_research'):
             return s.reply(400, {'ok': False, 'error': f'unknown action {action!r}'}, origin)
         if (action == 'transcription' and not TRANSCRIPTION_APPROVE_ENABLED) or (action == 'extraction' and not EXTRACTION_APPROVE_ENABLED) \
                 or (action.startswith('approve_expansion') and not EXPANSION_APPROVE_ENABLED):
@@ -928,7 +929,7 @@ class H(http.server.BaseHTTPRequestHandler):
                                          str(body.get('field') or 'diplomatic_text'), str(body.get('token') or ''), occ,
                                          body.get('context') if isinstance(body.get('context'), str) else None,
                                          body.get('value') if isinstance(body.get('value'), str) else None, pk, s.client())
-                elif action in ('add_row', 'update_row', 'delete_row', 'person_plus'): res = row_action(action, body, s.client())
+                elif action in ('add_row', 'update_row', 'delete_row', 'person_plus', 'start_research'): res = row_action(action, body, s.client())
                 elif action == 'approve_expansion': res = stage_approve(code, 'expansion', s.client())
                 elif action == 'approve_expansion_entry': res = approve_expansion_entry(code, str(body.get('entry_id') or ''), s.client())
                 elif action == 'undo_reading': res = undo_reading(code, str(body.get('change_id') or ''), s.client())

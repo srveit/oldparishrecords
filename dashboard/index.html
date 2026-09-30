@@ -30,7 +30,10 @@ a{color:#1a5fb4} a.mx{font-size:0.7857rem;color:#777;text-decoration:none;margin
 .grptog .garr{display:inline-block;width:1em;font-size:1.1em}.grptog .gcnt{font-weight:400;color:#444}.grptog:hover .gname{text-decoration:underline}
 #tab-dash tr[hidden]{display:none!important}
 #gctl{display:flex;gap:.5rem;margin:0 0 .5rem}#gctl .gall-b{font-size:.9286rem;font-weight:600;padding:.2rem .7rem;min-height:2rem;border:1px solid #0072b2;border-radius:6px;background:#fff;color:#0b4f8a;cursor:pointer}#gctl .gall-b:disabled{opacity:.5;cursor:default}
-@media (max-width:700px),(pointer:coarse){.pplus{min-width:44px;min-height:44px;font-size:1.1rem}#ppop .ppi{min-height:44px}.grptog{min-height:44px}#gctl .gall-b{min-height:44px}}</style><style id="oprnotes">#snotes{background:#fff;border:1px solid #c9d2e0;border-left:4px solid #0072b2;border-radius:8px;padding:.35rem .7rem .45rem;margin:0 0 .6rem;max-width:100%;box-sizing:border-box}
+@media (max-width:700px),(pointer:coarse){.pplus{min-width:44px;min-height:44px;font-size:1.1rem}#ppop .ppi{min-height:44px}.grptog{min-height:44px}#gctl .gall-b{min-height:44px}}</style><style id="oprrs-css">.rsx{margin-top:.25rem;display:flex;flex-wrap:wrap;gap:.3rem;align-items:center}
+.rsbtn{display:inline-flex;align-items:center;gap:.25em;border:2px solid #0072b2;border-radius:8px;background:#fff;color:#0b4f8a;font:inherit;font-size:.8571rem;font-weight:700;padding:.15rem .6rem;min-height:1.9rem;cursor:pointer;white-space:nowrap}
+.rsbtn:hover{background:#e8f1fa}.rsbtn:focus-visible{outline:3px solid #0072b2;outline-offset:2px}.rsbtn:disabled{opacity:.65;cursor:wait}
+@media (max-width:700px),(pointer:coarse){.rsbtn{min-height:44px;font-size:1rem}}</style><style id="oprnotes">#snotes{background:#fff;border:1px solid #c9d2e0;border-left:4px solid #0072b2;border-radius:8px;padding:.35rem .7rem .45rem;margin:0 0 .6rem;max-width:100%;box-sizing:border-box}
 #snotes .snh{font-size:.9286rem;margin:0 0 .2rem;color:#234}#snotes ul{list-style:none;margin:0;padding:0}
 #snotes .sn{padding:.25rem 0;border-top:1px solid #eef1f5;overflow-wrap:anywhere}#snotes .sn:first-child{border-top:0}
 #snotes .snsym{color:#0072b2;font-weight:700;font-size:1.05rem}#snotes .snchip{display:inline-block;background:#e8f1fa;color:#0b4f8a;border:1px solid #0072b2;border-radius:10px;padding:0 .5em;font-size:.7857rem;font-weight:700;white-space:nowrap}
@@ -105,11 +108,19 @@ function dkey(s){s=(s||'').trim();var m=s.match(/^(\d{1,2}) ([A-Z][a-z]{2}) (\d{
  if(m)return (+m[3])*10000+(MON[m[2]]||0)*100+(+m[1]);
  m=s.match(/(\d{4})/);return m?(+m[1])*10000:99999999;}
 function typecell(r){var t=r.record_type;if(!t)return esc(r.type);return '<span class="rty'+(t.key?'':' unk')+'" title="Record type: '+esc(t.label)+' (from '+esc(t.source)+')">'+esc(t.en).replace('/','/<wbr>')+(t.de?' <span class="de">('+esc(t.de)+')</span>':'')+'</span>';}
-function rowhtml(r){var h='';h+='<tr id="row-'+esc(r.code)+'"'+(GHIDE[r.group]&&!SORT?' hidden':'')+(r.added&&window.oprAdd&&oprAdd.just[r.code]&&Date.now()-oprAdd.just[r.code]<20000?' class="justadded"':'')+'><td class="n">'+r.id+'</td><td class="nm">'+esc(r.name)+plusbtn(r)+(r.added&&window.oprAddCell?oprAddCell(r):'')+'</td><td class="sp'+(r.spouse?'':' empty')+'" data-l="Spouse">'+esc(r.spouse||'')+'</td><td class="dt" data-l="Date">'+esc(r.date||'')+'</td><td class="tw" data-l="Town">'+esc(r.town||'')+'</td><td class="ty" data-l="Type">'+typecell(r)+'</td><td class="bk" data-l="Book">'+(srch(r,'book')?SRCH:bookcell(r))+'</td><td class="img" data-l="Image">'+(srch(r,'image')?SRCH:imgcell(r))+'</td><td class="pg" data-l="Page">'+(srch(r,'page')?SRCH:alink(r,r.page||r.image))+'</td>'
+function rowhtml(r){var h='';h+='<tr id="row-'+esc(r.code)+'"'+(GHIDE[r.group]&&!SORT?' hidden':'')+(r.added&&window.oprAdd&&oprAdd.just[r.code]&&Date.now()-oprAdd.just[r.code]<20000?' class="justadded"':'')+'><td class="n">'+r.id+'</td><td class="nm">'+esc(r.name)+plusbtn(r)+(r.added&&window.oprAddCell?oprAddCell(r):'')+rscell(r)+'</td><td class="sp'+(r.spouse?'':' empty')+'" data-l="Spouse">'+esc(r.spouse||'')+'</td><td class="dt" data-l="Date">'+esc(r.date||'')+'</td><td class="tw" data-l="Town">'+esc(r.town||'')+'</td><td class="ty" data-l="Type">'+typecell(r)+'</td><td class="bk" data-l="Book">'+(srch(r,'book')?SRCH:bookcell(r))+'</td><td class="img" data-l="Image">'+(srch(r,'image')?SRCH:imgcell(r))+'</td><td class="pg" data-l="Page">'+(srch(r,'page')?SRCH:alink(r,r.page||r.image))+'</td>'
     +chip(r.segmentation,r.code+'s')+chip(r.transcription,r.code+'t')+chip(r.expansion||{status:'Not started',source:'default'},r.code+'x')+chip(r.extraction,r.code+'e')+'</tr>';return h;}
 // ---- collapsible groups: state per browser in localStorage ('opr.grp.<group name>' = '0' collapsed; absent = expanded) ----
 var GHIDE={};function gload(g){try{return localStorage.getItem('opr.grp.'+g)==='0';}catch(e){return false;}}
 function gsave(g,col){GHIDE[g]=col;try{if(col)localStorage.setItem('opr.grp.'+g,'0');else localStorage.removeItem('opr.grp.'+g);}catch(e){}}
+// 🔍 Start research (any row with no book AND no page, research not already Researching); RS[code]: 'busy' | 'done' | error text
+var RS={};
+function rsneed(r){return !String(r.book||'').trim()&&!String(r.page||'').trim()&&!(r.research&&r.research.status==='Researching');}
+function rscell(r){var st=RS[r.code],h='';
+ if(st==='done'||(r.research&&r.research.status==='Researching')){if(!r.added)h='<span class="chip rsch k-proc" title="Research: Chief is looking for the book and page">Researching</span>';else if(st==='done'&&!(r.research&&r.research.status==='Researching'))h='<span class="chip rsch k-proc">Researching</span>';}
+ else if(rsneed(r))h='<button type="button" class="rsbtn" data-rs="'+esc(r.code)+'" aria-label="Start research for '+esc(r.name)+'"'+(st==='busy'?' disabled':'')+'>'+(st==='busy'?'Starting\u2026':'\ud83d\udd0d Start research')+'</button>';
+ if(st&&st!=='busy'&&st!=='done')h+='<span class="rerr" role="alert">\u2716 '+esc(st)+'</span>';
+ return h?'<div class="rsx">'+h+'</div>':'';}
 function plusbtn(r){var n=esc(r.name);if(r.person_kind==='page')return ' <button type="button" class="pplus pg" data-plus="'+esc(r.code)+'" aria-disabled="true" aria-haspopup="menu" aria-expanded="false" aria-label="Add a record: not available, page of several people" title="Page of several people">\uff0b</button>';
  return r.person_id?' <button type="button" class="pplus" data-plus="'+esc(r.code)+'" aria-haspopup="menu" aria-expanded="false" aria-label="Add a record for '+n+'" title="Add a record for '+n+'">\uff0b</button>':'';}
 // Status notes box (status_notes.json via status.py -> status.json/status.js); rebuilt only when the notes change
@@ -240,6 +251,18 @@ document.getElementById('tb').addEventListener('click',function(ev){var t=ev.tar
   if(!j.ok){A.err[code]='Not deleted ('+(j._http||'?')+'): '+(j.error||'unknown error');if(last)render(last);return;}
   if(EDIT&&EDIT.code===code)close();say('Deleted – row '+j.row+' ('+j.code+')','chip k-done');if(window.oprPollNow)oprPollNow();})
  .catch(function(e){A.err[code]='Could not reach the approve service: '+e;if(last)render(last);});});
+})();</script>
+<script id="oprrs">(function(){
+var API=location.protocol==='file:'?'http://grokbot-box.taileabb91.ts.net/api/approve':new URL('api/approve',location.href).href;
+document.getElementById('tb').addEventListener('click',function(ev){var b=ev.target.closest('button.rsbtn');if(!b)return;ev.preventDefault();var c=b.dataset.rs;
+ if(RS[c]==='busy'||RS[c]==='done')return;RS[c]='busy';b.disabled=true;b.textContent='Starting\u2026';
+ fetch(API,{method:'POST',headers:{'Content-Type':'application/json','X-OPR-Approve':'1'},body:JSON.stringify({action:'start_research',code:c})})
+ .then(function(x){if(window.oprAuth&&oprAuth.fail(x)){var go=oprAuth.login();return {ok:false,_http:401,error:go?'login required, opening the login page\u2026':'login required, please log in again'};}
+  return x.json().then(function(j){j._http=x.status;return j;},function(){return {ok:false,_http:x.status,error:'HTTP '+x.status};});})
+ .then(function(j){RS[c]=j.ok?'done':'Not sent ('+(j._http||'?')+'): '+(j.error||'unknown error');
+  if(last){last.rows.forEach(function(r){if(r.code===c&&j.ok)r.research={status:'Researching',detail:'Chief is looking for the book and page',source:'records.json'};});render(last);}
+  if(j.ok&&window.oprPollNow){var p=oprPollNow();var clr=function(){delete RS[c];};if(p&&p.then)p.then(clr,clr);else setTimeout(clr,3000);}})
+ .catch(function(e){RS[c]='Could not reach the approve service: '+e;if(last)render(last);});});
 })();</script>
 <script id="oprplus">(function(){
 // Group headers: toggle one group / all groups (state in localStorage via gsave; render() re-applies it on every poll)
