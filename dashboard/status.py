@@ -704,7 +704,7 @@ TOGGLE_JS = ('<button id="tg" onclick="var d=document.querySelectorAll(\'details
              '[].forEach.call(d,function(x){x.open=o})">Expand / collapse all</button>\n')
 OPEN_JS = ('<script id="openjs">(function(){var m=location.search.match(/[?&]open=([^&]+)/),k=m?decodeURIComponent(m[1]):location.hash.slice(1);'
            'var s=document.getElementById("stk"),f=function(){if(s)document.documentElement.style.setProperty("--stkh",s.offsetHeight+"px");};f();addEventListener("resize",f);'
-           'if(k){var e=document.getElementById(k);if(e){e.open=true;requestAnimationFrame(function(){f();e.scrollIntoView({block:"start"});});}}})();</script>\n')
+           'if(k){var e=document.getElementById(k);if(e){if(!e.hasAttribute("data-approved"))e.open=true;requestAnimationFrame(function(){f();e.scrollIntoView({block:"start"});});}}})();</script>\n')
 DETAILS_CSS = ('details.ent{border:1px solid #d5dce8;border-radius:6px;margin:0 0 8px;background:#fff}'
                'details.ent summary{cursor:pointer;padding:8px 12px;font-size:15px;background:#f5f7fb;border-radius:6px}'
                'details.ent[open] summary{border-bottom:1px solid #d5dce8;border-radius:6px 6px 0 0}'
@@ -905,7 +905,9 @@ function oprUndo(b){var z=b.closest('.chz');oprPost(b,{code:__CODE__,action:'und
  document.addEventListener('contextmenu',function(ev){if(tokEl(ev.target)&&window.matchMedia&&matchMedia('(pointer:coarse)').matches)ev.preventDefault();});})();
 function oprEntryApprove(ev,b){ev.preventDefault();ev.stopPropagation();oprPost(b,{code:__CODE__,action:(b.dataset.a||'approve_transcription_entry'),entry_id:b.dataset.e},'Approving\u2026',
  function(j){var c=document.createElement('span');c.className='entok';c.textContent='Approved'+(String(j.locked_by||'').match(/T(\d\d:\d\d)/)?' '+j.locked_by.match(/T(\d\d:\d\d)/)[1]:'');
-  b.replaceWith(c);if(j.row_approved){var ch=document.querySelector('#stk .chip.segchip');if(ch){ch.style.cssText='';ch.textContent='Approved';}}},
+  var d=b.dataset.a==='approve_expansion_entry'?b.closest('details.ent'):null;
+  b.replaceWith(c);if(j.row_approved){var ch=document.querySelector('#stk .chip.segchip');if(ch){ch.style.cssText='';ch.textContent='Approved';}}
+  if(d){if(!d.querySelector('summary button.entapv'))d.setAttribute('data-approved','1');d.open=false;if(d.getBoundingClientRect().top<0)d.scrollIntoView({block:'start'});}},
  oprErr(b));}
 window.oprOnRow=function(c){var fb=c.feedback||{},en=c.entries||{},now=Date.now();
  [].forEach.call(document.querySelectorAll('.fbchip'),function(el){var f=fb[el.dataset.e],t='',cl='fbchip';
@@ -914,7 +916,8 @@ window.oprOnRow=function(c){var fb=c.feedback||{},en=c.entries||{},now=Date.now(
    else if(st=='pending'||st=='processing'){t='Transcriber updating\u2026';cl+=' fbupd';}
    else if(st=='done'&&up&&now-up<60000){t='Updated';cl+=' fbdone';}}
   el.textContent=t;el.className=cl;el.style.display=t?'':'none';});
- [].forEach.call(document.querySelectorAll('button.entapv'),function(b){if(en[b.dataset.e]=='locked'){var s=document.createElement('span');s.className='entok';s.textContent='Approved';b.replaceWith(s);}});};
+ [].forEach.call(document.querySelectorAll('button.entapv'),function(b){if(en[b.dataset.e]=='locked'){var d=b.closest('details.ent'),s=document.createElement('span');s.className='entok';s.textContent='Approved';b.replaceWith(s);
+  if(d&&b.dataset.a==='approve_expansion_entry'&&!d.querySelector('summary button.entapv'))d.setAttribute('data-approved','1');}});};
 """.split('\n'))
 
 def write_transcription_pages(rows, man=None):
@@ -1071,7 +1074,8 @@ def write_expansion_pages(rows):
                          f'<div><h3>Expanded{tag}</h3><pre class="transcription xtext">{_exp_hl(exp, E)}</pre>'
                          + _tr_block('Deutsch', 'de', x.get('tr_de', ''), E) + _tr_block('English', 'en', x.get('tr_en', ''), E)
                          + (f'<div class="src">{E(x["notes"])}</div>' if x.get('notes') else '') + '</div></div>')
-            secs.append(f'<details class="ent" id="{E(en)}"><summary>{summ}</summary><div class="body">{body}</div></details>\n')
+            apd = bool(eids) and all((xs.get(eid) or {}).get('status') in _LOCKED for eid in eids)   # every expansion of the entry locked
+            secs.append(f'<details class="ent" id="{E(en)}"{" data-approved=\"1\"" if apd else ""}><summary>{summ}</summary><div class="body">{body}</div></details>\n')
         banner = ('<div class="draftban" style="background:#e69f00;border:2px solid #000;border-radius:8px;padding:10px 14px;margin:0 0 14px;'
                   'font-weight:800;font-size:16px;color:#000">\u26a0\ufe0e DRAFT \u2013 this expansion is not yet approved (needs your Approve).</div>\n' if draft else '')
         spouse = (' &times; ' + E(r['spouse'])) if r.get('spouse') else ''
