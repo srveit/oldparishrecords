@@ -10,7 +10,7 @@ browser ──TLS──> OPNsense nginx (oldparishrecords.com)
                                  └─ 204: proxy ─────────────────────> box /* (dashboard, /api/approve)
                                  └─ 401: @opr_dash_login → 302 /dashboard/login?next=… (HTML GET)
                                                             or 401 {"error":"login required"} (API/JSON/non-GET)
-box = grokbot-box (100.120.170.46), `tailscale serve` on :80
+box = the Grok box (<BOX_TAILNET_IP>), `tailscale serve` on :80
 ```
 
 ## Files
@@ -86,7 +86,7 @@ sudo tailscale --socket=/run/tailscale/tailscaled.sock serve --bg --http=80 --se
 sudo tailscale --socket=/run/tailscale/tailscaled.sock serve --bg --http=80 --set-path=/logout     http://127.0.0.1:8082/logout
 sudo tailscale --socket=/run/tailscale/tailscaled.sock serve --bg --http=80 --set-path=/auth/check http://127.0.0.1:8082/auth/check
 ```
-The tailnet URL http://grokbot-box.taileabb91.ts.net/ is still unauthenticated by design. Only the public
+The tailnet URL http://<BOX_TAILNET_HOST>/ is still unauthenticated by design. Only the public
 OPNsense path is behind the login.
 
 ## Run / restart

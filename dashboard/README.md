@@ -18,7 +18,7 @@ Restart:  kill $(cat updater.pid); cd /workspace/horn-wilmes/dashboard && nohup 
 Optional: an executable push.sh here is run after each regen (hook for a future LAN/tailnet/gist push).
 
 ## Delivery (current: option d, file copy)
-Greyhawk (macOS, /Users/sveit): /Users/sveit/OPR-Dashboard/index.html (open with "Open OPR Dashboard.command"). Kept current by ~/OPR-Dashboard/refresh.sh via launchd com.veithome.opr-dashboard, which pulls from http://grokbot-box.taileabb91.ts.net. The old Desktop/Downloads Wilmes-dashboard copies were trashed 2026-09-29.
+Greyhawk (macOS, /Users/sveit): /Users/sveit/OPR-Dashboard/index.html (open with "Open OPR Dashboard.command"). Kept current by ~/OPR-Dashboard/refresh.sh via launchd com.veithome.opr-dashboard, which pulls from the box tailnet URL. The old Desktop/Downloads Wilmes-dashboard copies were trashed 2026-09-29.
 Do not copy status.js to the Desktop; Greyhawk syncs itself via refresh.sh.
 If ever served over http, the page fetches status.json instead; ?src=<url> points it at a remote JSON URL.
 

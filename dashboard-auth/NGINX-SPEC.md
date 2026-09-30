@@ -3,7 +3,8 @@
 For: OPNsense Steward. Replaces HTTP basic auth on the two dashboard locations with a cookie session
 checked through `auth_request`. The box side is already live and tested (see the last section).
 
-The box (grokbot-box, 100.120.170.46, `tailscale serve` :80) serves these paths. nginx strips the `/dashboard` prefix:
+The box (<BOX_TAILNET_IP>, `tailscale serve` :80) serves these paths. nginx strips the `/dashboard` prefix:
+(Repo copy: `<BOX_TAILNET_IP>` / `<BOX_TAILNET_HOST>` are placeholders for the box's tailnet address and MagicDNS name; the real values are in the live copy on the box, which is not synced.)
 
 | Public URL | Box path | Auth |
 |---|---|---|
@@ -26,7 +27,7 @@ Current layout, from reading nginx.conf (read-only):
 All paths below are relative to `/usr/local/etc/nginx/`.
 
 **Validated:** I pasted blocks 1–4 verbatim into a scratch nginx 1.26 on the box. The only change was pointing
-`100.120.170.46` at a local forwarder into the same tailscale serve. `nginx -t` passed, and every test at the bottom
+`<BOX_TAILNET_IP>` at a local forwarder into the same tailscale serve. `nginx -t` passed, and every test at the bottom
 behaved as expected: 301, 302 with next, 401 JSON for API/JSON/non-GET/HEAD, login 200, wrong password 401,
 login 303 with the cookie, 200 with the cookie, logout, limit_req 429s, and no WWW-Authenticate anywhere.
 
@@ -91,10 +92,10 @@ named locations, or `limit_req` with a custom zone.
 # Subrequest target for auth_request. The box answers 204 (valid cookie) or 401 (no/invalid/expired cookie).
 location = /_opr_dash_auth {
     internal;
-    proxy_pass http://100.120.170.46/auth/check;
+    proxy_pass http://<BOX_TAILNET_IP>/auth/check;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
-    proxy_set_header Host grokbot-box.taileabb91.ts.net;
+    proxy_set_header Host <BOX_TAILNET_HOST>;
     proxy_set_header Cookie $http_cookie;
     proxy_set_header Authorization "";
     proxy_set_header X-Real-IP $remote_addr;
@@ -125,8 +126,8 @@ location = /dashboard/login {
     limit_req zone=opr_dash_login burst=5 nodelay;
     limit_req_status 429;
     client_max_body_size 8k;
-    proxy_pass http://100.120.170.46/login;          # query string (?next=...) is passed through
-    proxy_set_header Host grokbot-box.taileabb91.ts.net;
+    proxy_pass http://<BOX_TAILNET_IP>/login;          # query string (?next=...) is passed through
+    proxy_set_header Host <BOX_TAILNET_HOST>;
     proxy_set_header X-Real-IP $remote_addr;          # box rate-limits per this IP (5 fails / 5 min, 30 global)
     proxy_set_header X-Forwarded-For $remote_addr;    # set, not appended: a client can't spoof it
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -144,8 +145,8 @@ location = /dashboard/login {
 }
 
 location = /dashboard/logout {
-    proxy_pass http://100.120.170.46/logout;
-    proxy_set_header Host grokbot-box.taileabb91.ts.net;
+    proxy_pass http://<BOX_TAILNET_IP>/logout;
+    proxy_set_header Host <BOX_TAILNET_HOST>;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -174,11 +175,11 @@ This is the existing file with two lines added (`auth_request`, `error_page 401`
 
 ```nginx
 # managed by /home/grok-ro/bin/add-opr-dashboard.py -- location oldparishrecords-dashboard (/dashboard/)
-# Proxies to grokbot-box tailscale serve; /dashboard prefix stripped by proxy_pass URI.
+# Proxies to the box tailscale serve; /dashboard prefix stripped by proxy_pass URI.
 # Cookie login: every request is checked by /_opr_dash_auth (box /auth/check). Unauthenticated -> @opr_dash_login.
 auth_request /_opr_dash_auth;
 error_page 401 = @opr_dash_login;
-proxy_set_header Host grokbot-box.taileabb91.ts.net;
+proxy_set_header Host <BOX_TAILNET_HOST>;
 proxy_set_header X-Real-IP $remote_addr;
 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 proxy_set_header X-Forwarded-Proto $scheme;
@@ -190,7 +191,7 @@ proxy_cache off;
 proxy_buffering off;
 proxy_request_buffering on;
 proxy_read_timeout 60s;
-proxy_pass http://100.120.170.46/;
+proxy_pass http://<BOX_TAILNET_IP>/;
 add_header X-Robots-Tag "noindex, nofollow" always;
 proxy_hide_header Cache-Control;
 add_header Cache-Control "no-store" always;
