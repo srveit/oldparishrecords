@@ -3,6 +3,7 @@
 
 POST /api/approve  {"code": "<dashboard code>"}   (header X-OPR-Approve: 1 required)
 Locks every crop of a Draft or Recut row (Queued for redo / Redoing / Approved are refused) in BOTH manifests (entries/<book>/manifest.jsonl and entries/manifest.jsonl).
+Lank KB 1000 (entries/KB1000/, moved in 2026-09-30) is approved the same way; its per-book lines are matched by entry id (no image_id there).
 
 Listens on 127.0.0.1 only; published to the tailnet (never Funnel) via
   tailscale serve --http=80 --set-path=/api/approve http://127.0.0.1:8081/api/approve
@@ -85,6 +86,18 @@ def entries_for(data, img):
         except ValueError: continue
         if (j.get('image_id') or j.get('scan')) == img: out.append((i, j))
     return out
+
+def book_entries(data, img):
+    """entries_for() for a per-book manifest; also matches lines without image_id by entry id '<img>_eN' (Lank KB1000/manifest.jsonl
+    keeps its own schema: scan '078', no image_id). Lines that have an image_id are matched exactly as before."""
+    out = entries_for(data, img); seen = {i for i, _ in out}
+    for i, raw in enumerate(data.split(b'\n')):
+        if i in seen or not raw.strip(): continue
+        try: j = json.loads(raw)
+        except ValueError: continue
+        m = re.fullmatch(r'(.+)_e\d+[a-z]?', str(j.get('entry_id') or ''))
+        if not j.get('image_id') and m and m.group(1) == img: out.append((i, j))
+    return sorted(out, key=lambda t: t[0])
 
 def crop_state(j):
     return str(j.get('crop_status', '')).lower(), str(j.get('status', '') or '').lower()
@@ -171,8 +184,10 @@ def notify(evt):
     with open(NOTIFY_QUEUE, 'a', encoding='utf-8') as f:
         fcntl.flock(f, fcntl.LOCK_EX); f.write(json.dumps(evt, ensure_ascii=False) + '\n'); f.flush(); os.fsync(f.fileno())
 
-# Other projects' crops (status.py EXT_PROJECTS): read-only here. Approve refuses; a correction flag may reference them.
-EXT_MANIFESTS = {('lank st. stephanus', 'KB 1000'): ('Lank KB 1000', '/workspace/lank-kb1000/entries/KB1000/manifest.jsonl')}
+# Books that came from another project (status.py EXT_PROJECTS): (label, per-book manifest, approve allowed).
+# Lank KB 1000 moved into the main store 2026-09-30: entries/KB1000/ (old path /workspace/lank-kb1000/entries/KB1000 is a symlink to it);
+# its crop lines are in entries/manifest.jsonl too, so Approve locks them like Horn crops (both manifests, entries/.manifest.lock).
+EXT_MANIFESTS = {('lank st. stephanus', 'KB 1000'): ('Lank KB 1000', os.path.join(ENTRIES, 'KB1000', 'manifest.jsonl'), True)}
 def ext_of(code):
     try: rec = next((x for x in json.load(open(os.path.join(DASH, 'records.json'), encoding='utf-8'))['records'] if x.get('code') == code), {})
     except Exception: rec = {}
@@ -193,7 +208,7 @@ def approve(code, client):
     if code not in rows: raise Reject(f'unknown code {code!r}: not a current dashboard row', 404)
     row, img = rows[code]
     x = ext_of(code)
-    if x: raise Reject(f'{code}: {x[0]} crops live in {os.path.dirname(x[1])}, which the dashboard only reads; approving (locking) them is not supported yet; nothing changed', 409)
+    if x and not x[2]: raise Reject(f'{code}: {x[0]} crops live in {os.path.dirname(x[1])}, which the dashboard only reads; approving (locking) them is not supported; nothing changed', 409)
     seg = str(row.get('segmentation', {}).get('status', '')); sl = seg.lower()
     if not (sl.startswith('draft') or sl.startswith('recut')):
         raise Reject(f'{code}: segmentation is {seg!r}; only Draft or Recut rows can be approved; nothing changed', 409)
@@ -210,10 +225,10 @@ def approve(code, client):
         gdata, gsig = read_lines(gpath)
         gents = entries_for(gdata, img)
         books = [p for p in glob.glob(os.path.join(ENTRIES, '*', 'manifest.jsonl'))
-                 if not os.path.basename(os.path.dirname(p)).startswith('_') and entries_for(read_lines(p)[0], img)]
+                 if not os.path.basename(os.path.dirname(p)).startswith('_') and book_entries(read_lines(p)[0], img)]
         if not gents: raise Reject(f'{code}: no crops in entries/manifest.jsonl; nothing changed', 409)
         if len(books) != 1: raise Reject(f'{code}: expected exactly one book manifest with these crops, found {len(books)}; nothing changed', 409)
-        bpath = books[0]; bdata, bsig = read_lines(bpath); bents = entries_for(bdata, img)
+        bpath = books[0]; bdata, bsig = read_lines(bpath); bents = book_entries(bdata, img)
         ids = lambda es: sorted(j.get('entry_id') for _, j in es)
         if ids(gents) != ids(bents): raise Reject(f'{code}: the two manifests disagree on the crop list; nothing changed', 409)
         states = [crop_state(j) for _, j in gents + bents]
@@ -239,7 +254,7 @@ def approve(code, client):
             f.write(f'{stamp_t}\t{code}\t{os.path.basename(os.path.dirname(bpath))}\t{len(gents)} crops\t{client}\n')
         atomic_write(bpath, new_b); atomic_write(gpath, new_g)
         # verify both manifests agree and all crops are locked with our stamp
-        vb = {j['entry_id']: (j.get('crop_status'), j.get('locked_by')) for _, j in entries_for(read_lines(bpath)[0], img)}
+        vb = {j['entry_id']: (j.get('crop_status'), j.get('locked_by')) for _, j in book_entries(read_lines(bpath)[0], img)}
         vg = {j['entry_id']: (j.get('crop_status'), j.get('locked_by')) for _, j in entries_for(read_lines(gpath)[0], img)}
         ok = vb == vg and all(v == ('locked', stamp) for v in vg.values())
         if not ok: raise Reject('post-write verification failed: manifests disagree; backups: ' + ', '.join(baks), 500)

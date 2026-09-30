@@ -59,7 +59,7 @@ def manifest():
         try: j = json.loads(l)
         except ValueError: continue
         by.setdefault(j.get('image_id') or j.get('scan'), []).append(j)
-    for k, v in _st().ext_manifest().items(): by.setdefault(k, []).extend(v)   # other projects' crops (e.g. Lank KB 1000), read-only
+    for k, v in _st().ext_manifest().items(): by.setdefault(k, []).extend(v)   # books outside the main store (none now; Lank KB 1000 is in entries/manifest.jsonl)
     return by
 
 def verify(code, img, man):

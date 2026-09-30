@@ -15,7 +15,7 @@ def load_manifest():
             except ValueError: continue
             by.setdefault(r.get('image_id') or r.get('scan'), []).append(r)
     except FileNotFoundError: pass
-    for k, v in ext_manifest().items(): by.setdefault(k, []).extend(v)     # other projects' crops (read-only), keyed by page id
+    for k, v in ext_manifest().items(): by.setdefault(k, []).extend(v)     # books still outside the main store (none now), keyed by page id
     return by
 
 def is_locked(e):
@@ -33,17 +33,18 @@ def seg(img, man):
         return 'Queued (page layout done)', 'Stage 0 files present, no crops yet'
     return None, ''
 
-# ---- Rows whose files live in ANOTHER project folder (read-only; nothing there is ever written) ----
+# ---- Books that came from another project ----
 # Keyed by (town, book) from records.json. The row's image_id is that project's page id ('KB1000_s078_p164' = Page Structure /
-# manifest entry ids minus '_eN'); its manifest entries are merged into load_manifest() under that id, so the segmentation chip,
-# the page (every crop of the page cut, copied + ?v=mtime) and setseg --audit treat them like Horn crops.
+# manifest entry ids minus '_eN'). Lank KB 1000 moved into the main store 2026-09-30: entries/KB1000/ (the old folder
+# /workspace/lank-kb1000/entries/KB1000 is a symlink to it) and its crop lines are in entries/manifest.jsonl (image_id = page id),
+# so load_manifest() reads them like Horn crops ('in_main_store'); this entry keeps the label, Page Structure, QC folder and target map.
 EXT_PROJECTS = {('lank st. stephanus', 'KB 1000'): {
-    'root': '/workspace/lank-kb1000', 'label': 'Lank KB 1000',
+    'root': os.path.join(W, 'entries'), 'label': 'Lank KB 1000', 'in_main_store': True,
     'prefix': 'KB1000',                                    # page id = KB1000_s<scan 3 digits>_p<page>
-    'manifest': 'entries/KB1000/manifest.jsonl',          # crops (entry_id, crop_path, crop_status)
-    'qc': 'entries/KB1000/_qc',                            # <page id>_redo_overlay.jpg / _redo_contact.jpg
-    'structure': 'entries/KB1000/structure/*.jsonl',       # Page Structure (Stage 0): structure_id per entry
-    'approve': False,                                      # crops can't be locked from the dashboard (folder is read-only for us)
+    'manifest': 'KB1000/manifest.jsonl',                  # per-book manifest (Lank schema; crop lines also in entries/manifest.jsonl)
+    'qc': 'KB1000/_qc',                                    # <page id>_redo_overlay.jpg / _redo_contact.jpg
+    'structure': 'KB1000/structure/*.jsonl',               # Page Structure (Stage 0): structure_id per entry
+    'approve': True,                                       # Approve locks the crops like Horn (both manifests, entries/.manifest.lock)
     'entries': {'N0023': 'KB1000_s078_p164_e3', 'N0024': 'KB1000_s097_p202_e6'}}}   # the row's own entry on the page (target)
 def ext_project(r):
     return EXT_PROJECTS.get((str(r.get('town') or '').strip().lower(), str(r.get('book') or '').strip()))
@@ -84,7 +85,8 @@ def _ext_read(p):
     _EXT_CACHE[p['root']] = (man, struct); return _EXT_CACHE[p['root']]
 def ext_manifest():
     out = {}
-    for p in EXT_PROJECTS.values(): out.update(_ext_read(p)[0])
+    for p in EXT_PROJECTS.values():
+        if not p.get('in_main_store'): out.update(_ext_read(p)[0])      # main-store books are already in entries/manifest.jsonl
     return out
 def ext_seg(r):
     """No crops yet for an EXT page: Page Structure done -> 'Queued (page layout done)'; else None (not started)."""
@@ -1384,9 +1386,6 @@ def _seg_header(r, st, n, E, ents=(), xp=None):
         btn = _lock_note(nbad, n, 'crops', E).replace(' locked;', ' locked or not pending;')
     elif sl.startswith('approved') and not stg and RECUT_ENABLED:
         btn = _approve_btn(r, 'recut')
-    elif (sl.startswith('draft') or stg == 'recut') and xp and not xp.get('approve'):
-        btn = ('<span class="stagenote lank" role="note" style="display:inline-block;padding:4px 10px;border-radius:6px;white-space:normal">\u24d8 Approve is not available yet for '
-               + E(xp['label']) + ' crops: they live in ' + E(xp['root']) + ', which the dashboard only reads. Lock them in the Lank project; this page updates by itself.</span>')
     elif sl.startswith('draft') or stg == 'recut':
         btn = _approve_btn(r, 'segmentation', f"Approve all {n} crops of row {r['id']} ({r['code']})? This locks them in the Entry Segmenter manifests.")
     line2 = (f'<b>Image</b> {_img_link(r, E)} &nbsp; <span class="src">{E(r["segmentation"].get("detail", ""))}</span> &nbsp; '
@@ -1442,7 +1441,7 @@ def write_segmentation_pages(rows, man):
         st = str(r['segmentation']['status']); sl = st.lower()
         tq = str(r['transcription']['status']).lower().startswith(('approved', 'draft'))  # transcription page needs the crops
         img = imgs.get(r['code']) or r.get('image_id') or ''; ents = sorted(man.get(img, []), key=_seg_key); stg = _stage(sl)
-        xp = EXT_PROJECTS.get((str(r.get('town') or '').strip().lower(), str(r.get('book') or '').strip())) if ents and ents[0].get('_ext_root') else None
+        xp = ext_project(r) if ents else None                     # book from another project (Lank KB 1000): label, QC folder, target entry
         tgt = (xp['entries'].get(r['code']) if xp else None)
         corr = _corrections(r['code']); r['segmentation']['corrections'] = corr
         # page + link: Approved/Draft/Recut always; Queued for redo/Redoing only when crops exist (old cut / in progress)
@@ -1506,7 +1505,7 @@ def write_segmentation_pages(rows, man):
             '<p><a href="../index.html">&larr; Dashboard</a></p>\n'
             f'<h1>Row {E(r["id"])}: {E(r["name"])} <span class="fn">({E(c)})</span> \u2013 Segmentation</h1>\n'
             + _seg_header(r, st, len(ents), E, ents, xp)
-            + (f'<p class="src">Crops read from {E(xp["label"])} ({E(os.path.join(xp["root"], xp["manifest"]))}, read-only): the whole page cut, {len(ents)} crops'
+            + (f'<p class="src">{E(xp["label"])} crops (<code>entries/{E(os.path.dirname(xp["manifest"]))}/</code>): the whole page cut, {len(ents)} crops'
                + (f'; this row\u2019s entry is <a href="#target">{E(tgt[len(img):].lstrip("_"))}</a> (\u25c6).' if tgt and any(e.get("entry_id") == tgt for e in ents) else '; this row\u2019s entry on the page is not mapped yet, so all crops are shown unmarked.') + '</p>\n' if xp else '')
             + qc_html
             + (''.join(blocks) or '<p>(no crops in the segmentation manifest)</p>\n') + OPEN_JS +
@@ -1686,7 +1685,8 @@ def build_meta(rows, now):
         'Scans: Matricula Online (links on each row point to <code>data.matricula-online.eu</code>).',
         '<code>dashboard/records.json</code>: the row list (code, book, page, image_id, groups).',
         '<code>entries/manifest.jsonl</code> (combined crop manifest; segmentation status, crop paths, lock state) and per-book <code>entries/&lt;book&gt;/manifest.jsonl</code> '
-        '(written by approve; status.py reads the combined file).',
+        '(written by approve; status.py reads the combined file). Lank KB 1000 lives in <code>entries/KB1000/</code> (moved from <code>/workspace/lank-kb1000</code> '
+        '2026-09-30; the old path is a symlink) with its lines in the combined manifest, so its rows are approved like Horn rows.',
         '<code>stage0/*.page.json</code> (page structure; parish/town names) and <code>stage0_work/</code> (presence check only).',
         '<code>stageA/&lt;code&gt;/*.diplomatic.json</code> and <code>&lt;code&gt;_stageA.md</code> (transcriptions; <code>status</code> soft/locked per entry), '
         '<code>stageA/&lt;code&gt;/_confirmed_readings.json</code>, <code>_feedback_status.json</code>.',
