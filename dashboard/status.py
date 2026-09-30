@@ -1579,7 +1579,7 @@ def main():
     os.makedirs(OUT, exist_ok=True); write_segmentation_pages(rows, man); write_extraction_pages(rows, man); write_transcription_pages(rows, man); write_expansion_pages(rows)   # segmentation first: fills _PUB (crops for extraction title rows); also sets .link on linked chips
     now = datetime.datetime.now().astimezone()
     data = {'generated_at': now.isoformat(timespec='seconds'), 'generated_epoch': int(now.timestamp()),
-            'groups': recs['groups'], 'rows': rows}
+            'groups': recs['groups'], 'rows': rows, 'notes': load_notes()}
     try: data['meta_html'] = build_meta(rows, now)
     except Exception as ex: data['meta_html'] = '<p>Meta could not be built: ' + _html.escape(str(ex)) + '</p>'
     os.makedirs(OUT, exist_ok=True)
@@ -1595,6 +1595,28 @@ def _count_lines(p):
     try:
         with open(p, encoding='utf-8') as f: return sum(1 for l in f if l.strip())
     except Exception: return None
+
+NOTE_KINDS = ('info', 'resolved')
+def load_notes():
+    """status_notes.json: [{date 'YYYY-MM-DD', time 'HH:MM' (CT, may be ''), title, body, kind info|resolved}], newest first.
+    Plain text only (escaped wherever shown). Bad entries are skipped; a missing/unreadable file = no notes."""
+    try: raw = json.load(open(os.path.join(D, 'status_notes.json'), encoding='utf-8'))
+    except Exception: return []
+    out = []
+    for n in raw if isinstance(raw, list) else []:
+        if not isinstance(n, dict) or not str(n.get('title') or '').strip(): continue
+        out.append({'date': str(n.get('date') or '')[:10], 'time': str(n.get('time') or '')[:5], 'title': str(n['title']).strip()[:200],
+                    'body': str(n.get('body') or '').strip()[:2000], 'kind': n.get('kind') if n.get('kind') in NOTE_KINDS else 'info'})
+    out.sort(key=lambda n: (n['date'], n['time']), reverse=True)
+    return out
+def note_when(n):
+    """'30 Sep 2026, 8:23 AM CT' (or just the date)."""
+    try: d = datetime.datetime.strptime(n['date'], '%Y-%m-%d'); ds = f'{d.day} {d:%b %Y}'
+    except ValueError: ds = n['date']
+    if n.get('time'):
+        try: t = datetime.datetime.strptime(n['time'], '%H:%M'); return f'{ds}, {t.hour % 12 or 12}:{t:%M} {"AM" if t.hour < 12 else "PM"} CT'
+        except ValueError: pass
+    return ds
 
 def build_meta(rows, now):
     """HTML for the Meta tab. Facts come from this code, approve_server.py, updater.sh/push.sh/ensure_dashboard.sh,
@@ -1636,6 +1658,11 @@ def build_meta(rows, now):
 
     h = ['<p class="mnote">Operational notes for this dashboard, rebuilt by <code>status.py</code> on every refresh '
          f'(this copy: {e(now.strftime("%Y-%m-%d %H:%M:%S"))} CT). Anything not confirmed from the code or config is marked <i>unverified</i>.</p>']
+    nts = load_notes()
+    h.append(sec('Status notes', (ul([f'<span class="nsym n-{n["kind"]}" aria-hidden="true">{"\u2713" if n["kind"] == "resolved" else "\u24d8"}</span> '
+                                      f'<b>{e(n["title"])}</b> <span class="mnote">({e("Resolved" if n["kind"] == "resolved" else "Info")}, {e(note_when(n))})</span><br>{e(n["body"])}' for n in nts])
+                                  if nts else '<p class="mnote">No status notes.</p>')
+                 + '<p class="mnote">Edit <code>dashboard/status_notes.json</code> to add or remove a note (shown on the Pipeline page and here within 30 s).</p>'))
     h.append(sec('1. How it is hosted', ul([
         '<b>https://oldparishrecords.com/dashboard/</b> (hidden: not linked from the public site; every page carries <code>noindex,nofollow</code>). '
         'OPNsense nginx terminates TLS and gates the whole <code>/dashboard</code> tree, including the API, behind a <b>login page with a session cookie</b> '

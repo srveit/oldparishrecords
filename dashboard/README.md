@@ -10,6 +10,8 @@
 Files: records.json (19 rows, static fields + baseline), overrides.json (coordinator-edited), status.py (derivation),
 index.html (UI), updater.sh (loop), out/ (generated status.json, status.js, index.html).
 
+Status notes: edit status_notes.json (list of {date YYYY-MM-DD, time HH:MM CT or "", title, body, kind info|resolved}; plain text, no credentials) to add or remove a note; status.py shows it on the Pipeline page and the Meta tab within 30 s.
+
 ## Updater
 Running: PID 4183527 (also in updater.pid), started 2026-09-27 07:26 CDT. Regenerates out/ every 30 s; errors -> updater.log.
 Restart:  kill $(cat updater.pid); cd /workspace/horn-wilmes/dashboard && nohup ./updater.sh >/dev/null 2>&1 & echo $! > updater.pid
