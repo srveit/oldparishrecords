@@ -1006,7 +1006,12 @@ EXP_CSS = ('.xgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-ite
            '.xgrid>div{min-width:0}.xgrid h3{margin:6px 0 4px}'
            '@media (max-width:699px){.xgrid{grid-template-columns:1fr}}'
            'span.sup{background:#e8f1fa;color:#0b4f8a;border-bottom:2px solid #0b4f8a;border-radius:3px;padding:0 1px}'
-           '.xkey{display:inline-block;margin:4px 0 10px;font-size:14px}')
+           '.xkey{display:inline-block;margin:4px 0 10px;font-size:14px}'
+           # Expanded text + its Deutsch/English translation text at 1.5x (Stephen 2026-09-30); root is 16px on detail pages.
+           # Was 13px (desktop) / 15px (phone, MOBILE_CSS pre) for the expanded text and 15px for translations everywhere.
+           'pre.xtext{font-size:1.21875rem;overflow-wrap:anywhere}'                  # 13px x 1.5 = 19.5px
+           '.xgrid details.tr>div{font-size:1.40625rem;overflow-wrap:anywhere}'      # 15px x 1.5 = 22.5px (desktop and phone)
+           '@media (max-width:700px),(pointer:coarse) and (max-height:500px){pre.xtext{font-size:1.40625rem}}')   # 15px x 1.5 = 22.5px
 
 def _exp_hl(text, E):
     """Escape the expanded text; supplied [letters/words] get the Okabe-Ito blue 'supplied' style (background + underline,
@@ -1063,7 +1068,7 @@ def write_expansion_pages(rows):
                 if x.get('margin'): exp += '\n\n' + x['margin']
                 tag = f' <span class="fn">{E(_etag(eid))}</span>' if len(eids) > 1 else ''
                 body += (f'<div class="xgrid"><div><h3>Diplomatic (Stage A){tag}</h3><pre class="transcription stagea-text">{E(dip)}</pre></div>'
-                         f'<div><h3>Expanded{tag}</h3><pre class="transcription">{_exp_hl(exp, E)}</pre>'
+                         f'<div><h3>Expanded{tag}</h3><pre class="transcription xtext">{_exp_hl(exp, E)}</pre>'
                          + _tr_block('Deutsch', 'de', x.get('tr_de', ''), E) + _tr_block('English', 'en', x.get('tr_en', ''), E)
                          + (f'<div class="src">{E(x["notes"])}</div>' if x.get('notes') else '') + '</div></div>')
             secs.append(f'<details class="ent" id="{E(en)}"><summary>{summ}</summary><div class="body">{body}</div></details>\n')
@@ -1720,6 +1725,12 @@ def build_meta(rows, now):
          'backup <code>records.json.bakN</code>, log line, queue <code>kind: row_added</code>. New rows start with <b>no research value</b> (no chip); research starts only when asked: Chief sets \U0001F50D Researching with <code>setresearch.py</code>, then \u2713 Page found. '
          'When book, image and page are all filled in (Edit details / <code>update_row</code> or Chief\u2019s <code>updaterow.py</code>): Research \u2713 Page found, Segmentation Queued, one queue line '
          '<code>kind: segmentation_requested</code> (never repeated for the same book|image|page). <code>delete_row</code> only for added rows with no pipeline work (409 otherwise), queue <code>kind: row_deleted</code>.'),
+        ('\u270e Edit (name)', 'Blue-outlined <b>\u270e Edit</b> button next to the name on <b>every</b> row (table and cards). The name becomes an inline text box with Save and Cancel; '
+         'Enter or Save saves, Esc or Cancel restores the name and returns focus to \u270e. Empty or whitespace-only names are refused inline (nothing sent), as is anything rowedit refuses (e.g. over 200 characters). '
+         'No confirmation; the box is disabled while saving; an open editor survives the 15 s poll. Uses the existing <code>update_row</code> action (same origin / <code>X-OPR-Approve</code> / login checks) with only '
+         '<code>{code, name}</code>: <code>rowedit.update_row</code> now accepts <b>name</b> on original rows too (besides person_id / person_kind); every other field stays limited to added rows. '
+         'Writes <code>records.json</code> (backup <code>records.json.bakN</code>) and one <code>_approvals.log</code> line (<code>changed name: old -> new</code>); original rows get no <code>updated_at</code> and <b>no queue line</b> '
+         '(a name change never requests segmentation). On success the name updates in place with a brief \u2713 Saved chip and the table refreshes at once.'),
         ('\U0001F50D Start research', 'Blue-outlined button in the Name cell of any row (table and cards) while <b>book and page are both empty</b> and research is not already '
          '\U0001F50D Researching; it disappears once a book or page is entered. One click, no confirmation; disabled while saving. Action <code>start_research</code> on the approve API '
          '(same origin / <code>X-OPR-Approve</code> / login checks). Under the rowedit lock: research \u2192 <b>Researching</b> (the same write as <code>setresearch.py</code>), '

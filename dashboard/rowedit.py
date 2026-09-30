@@ -358,8 +358,8 @@ def update_row(ctx, code, f, client='cli', who=BY, allow_research=True):
     lf = lock(ctx)
     try:
         recs = load(ctx); rec = _find(recs, code)
-        pkeys = {'person_id', 'person_kind'}
-        if not is_added(rec) and set(f) - pkeys: raise RowError(f'{code} is not an added row; only rows added with \u201c\uff0b Add row\u201d can be edited here (person_id / person_kind can be set on any row)', 409)
+        pkeys = {'person_id', 'person_kind', 'name'}      # allowed on ANY row (name: Stephen 2026-09-30, the dashboard's ✎ Edit)
+        if not is_added(rec) and set(f) - pkeys: raise RowError(f'{code} is not an added row; only rows added with \u201c\uff0b Add row\u201d can be edited here (name, person_id / person_kind can be set on any row)', 409)
         stamp = now_ct(); events = []; before = json.dumps(rec, sort_keys=True); b_nt = (rec.get('name'), rec.get('type'))
         b_p = (rec.get('person_id'), rec.get('person_kind')); m = None
         if 'person_id' in f:
@@ -369,12 +369,17 @@ def update_row(ctx, code, f, client='cli', who=BY, allow_research=True):
             if pk not in PERSON_KINDS: raise RowError('person_kind must be person or page', 400)
             if pk == 'person': rec.pop('person_kind', None)
             else: rec['person_kind'] = pk
-        if not is_added(rec):          # original row: only the person link changes (no derive / no URL rebuild)
-            if (rec.get('person_id'), rec.get('person_kind')) == b_p: return {'ok': True, 'action': 'update_row', 'row': rec['id'], 'code': code, 'changed': [], 'record': rec, 'events': [], 'time': stamp, 'records_backup': None}
+        if not is_added(rec):          # original row: only the name and the person link change (no derive / no URL rebuild, no updated_at)
+            if 'name' in f:
+                n = clean(f['name'], 'name')
+                if not n: raise RowError('Name is required', 400)
+                rec['name'] = n
+            if (rec.get('person_id'), rec.get('person_kind'), rec.get('name')) == b_p + (b_nt[0],): return {'ok': True, 'action': 'update_row', 'row': rec['id'], 'code': code, 'changed': [], 'record': rec, 'events': [], 'time': stamp, 'records_backup': None}
             bak = save(ctx, recs)
             if m is not None: meta_save(ctx, m, stamp)
-            ch = [k for k, a in (('person_id', b_p[0]), ('person_kind', b_p[1])) if rec.get(k) != a]
-            log(ctx, stamp, 'update_row', rec['id'], code, 'changed ' + ','.join(ch) + f" -> {rec.get('person_id')} {rec.get('person_kind', 'person')}", client)
+            ch = [k for k, a in (('name', b_nt[0]), ('person_id', b_p[0]), ('person_kind', b_p[1])) if rec.get(k) != a]
+            log(ctx, stamp, 'update_row', rec['id'], code, 'changed ' + ','.join(ch) + (f": {b_nt[0]!r} -> {rec.get('name')!r}" if 'name' in ch else '')
+                + (f" -> {rec.get('person_id')} {rec.get('person_kind', 'person')}" if set(ch) - {'name'} else ''), client)
             return {'ok': True, 'action': 'update_row', 'row': rec['id'], 'code': code, 'changed': ch, 'record': rec, 'events': [], 'records_backup': bak, 'time': stamp}
         if 'name' in f:
             n = clean(f['name'], 'name')
