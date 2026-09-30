@@ -34,12 +34,13 @@ a{color:#1a5fb4} a.mx{font-size:0.7857rem;color:#777;text-decoration:none;margin
 .nesave{background:#0072b2;color:#fff}.necancel{border-color:#6b6b6b;color:#333}
 .nedit:hover,.necancel:hover{background:#e8f1fa}.nedit:focus-visible,.nesave:focus-visible,.necancel:focus-visible{outline:3px solid #0072b2;outline-offset:2px}
 .nedit:disabled,.nesave:disabled,.necancel:disabled{opacity:.65;cursor:wait}
+.nedit{justify-content:center;min-width:1.9rem;padding:.1rem .35rem}.rbtn.pico{display:inline-flex;align-items:center;justify-content:center;padding-left:.4em;padding-right:.4em;min-width:1.9rem}.rbtn.pico:focus-visible{outline:3px solid #0072b2;outline-offset:2px}
 .nebox{display:flex;flex-wrap:wrap;gap:.3rem;align-items:center;max-width:100%}
 .nein{font:inherit;font-size:1rem;min-width:0;width:16em;max-width:100%;padding:.2rem .4rem;border:2px solid #0072b2;border-radius:6px;box-sizing:border-box}
 .nein:focus-visible{outline:3px solid #0072b2;outline-offset:1px}.nein:disabled{background:#eee;color:#555}
 .nebtns{display:inline-flex;gap:.3rem}
 .chip.nesaved{background:#e8f1fa;border:1px solid #0072b2;color:#0b4f8a;font-weight:700}
-@media (max-width:700px),(pointer:coarse){.nedit,.nesave,.necancel{min-height:44px;font-size:1rem}.nein{width:100%;min-height:44px;font-size:max(16px,1rem)}}</style><style id="oprrs-css">.rsx{margin-top:.25rem;display:flex;flex-wrap:wrap;gap:.3rem;align-items:center}
+@media (max-width:700px),(pointer:coarse){.nedit,.nesave,.necancel{min-height:44px;font-size:1rem}.nedit,.rbtn.pico{min-width:44px;min-height:44px}.nein{width:100%;min-height:44px;font-size:max(16px,1rem)}}</style><style id="oprrs-css">.rsx{margin-top:.25rem;display:flex;flex-wrap:wrap;gap:.3rem;align-items:center}
 .rsbtn{display:inline-flex;align-items:center;gap:.25em;border:2px solid #0072b2;border-radius:8px;background:#fff;color:#0b4f8a;font:inherit;font-size:.8571rem;font-weight:700;padding:.15rem .6rem;min-height:1.9rem;cursor:pointer;white-space:nowrap}
 .rsbtn:hover{background:#e8f1fa}.rsbtn:focus-visible{outline:3px solid #0072b2;outline-offset:2px}.rsbtn:disabled{opacity:.65;cursor:wait}
 @media (max-width:700px),(pointer:coarse){.rsbtn{min-height:44px;font-size:1rem}}</style><style id="oprnotes">#snotes{background:#fff;border:1px solid #c9d2e0;border-left:4px solid #0072b2;border-radius:8px;padding:.35rem .7rem .45rem;margin:0 0 .6rem;max-width:100%;box-sizing:border-box}
@@ -245,7 +246,7 @@ F.addEventListener('submit',function(ev){ev.preventDefault();if(BUSY)return;ER.t
 window.oprAddCell=function(r){var a=r.added;if(!a)return '';var A=oprAdd,tm=(String(a.at||'').match(/T(\d\d:\d\d)/)||[])[1]||'';
  var h='<div class="addx"><span class="chip k-done" title="Added by '+esc(a.by)+' '+esc(a.at)+'">Added</span>';
  if(r.research&&r.research.status)h+='<span class="chip rsch '+cls(r.research.status)+'" title="Research: '+esc(r.research.detail||'')+'">'+esc(r.research.status)+'</span>';
- h+='<button type="button" class="rbtn" data-edit="'+esc(r.code)+'" title="Edit this row\'s details">Edit details</button>';
+ h+='<button type="button" class="rbtn pico" data-edit="'+esc(r.code)+'" title="Edit details" aria-label="Edit details of row '+esc(r.id)+' ('+esc(r.code)+')">\u270e</button>';
  if(a.deletable){var arm=A.arm[r.code]&&A.arm[r.code]>Date.now();h+='<button type="button" class="rbtn del'+(arm?' armed':'')+'" data-del="'+esc(r.code)+'" title="Delete this added row (only while it has no pipeline work)">'+(arm?'Tap again to delete':'Delete')+'</button>';}
  if(a.same_page&&a.same_page.length)h+='<span class="dupn" title="This added row points at a page another row already covers">same page as '+esc(a.same_page.join(', '))+'</span>';
  if(A.err[r.code])h+='<span class="rerr" role="alert">✖ '+esc(A.err[r.code])+'</span>';
@@ -273,7 +274,7 @@ E.cell=function(r){var e=NE[r.code];
   +'<span class="nebtns"><button type="button" class="nesave" data-ne="'+esc2(r.code)+'"'+(e.busy?' disabled':'')+'>'+(e.busy?'Saving\u2026':'Save')+'</button>'
   +'<button type="button" class="necancel" data-ne="'+esc2(r.code)+'"'+(e.busy?' disabled':'')+'>Cancel</button></span>'
   +(e.err?'<span class="rerr" role="alert">\u2716 '+esc2(e.err)+'</span>':'')+'</span>';};
-E.btn=function(r){var e=NE[r.code];if(e&&e.open)return '';return ' <button type="button" class="nedit" data-ne="'+esc2(r.code)+'" aria-label="Edit name for '+esc2(r.name)+'">\u270e Edit</button>';};
+E.btn=function(r){var e=NE[r.code];if(e&&e.open)return '';return ' <button type="button" class="nedit" data-ne="'+esc2(r.code)+'" title="Edit name" aria-label="Edit name for '+esc2(r.name)+'">\u270e</button>';};
 E.after=function(fa){if(fa&&fa.matches&&fa.matches('button.nedit')&&!document.body.contains(fa)){var nb=document.querySelector('button.nedit[data-ne="'+CSS.escape(fa.dataset.ne)+'"]');if(nb)nb.focus({preventScroll:true});}var c=null;for(var k in NE)if(NE[k].open&&NE[k].focus){c=k;break;}if(!c)return;var i=document.querySelector('input.nein[data-ne="'+CSS.escape(c)+'"]');if(!i||i.disabled)return;
  if(document.activeElement!==i&&(!fa||!fa.closest||!fa.closest('#tb')||fa.matches('input.nein'))){i.focus({preventScroll:true});try{i.setSelectionRange(NE[c].ss,NE[c].se);}catch(x){}}};
 function rr(){if(last)render(last);}
