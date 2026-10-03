@@ -1,29 +1,26 @@
 #!/usr/bin/env python3
-"""OPR dashboard cookie login service (stdlib only).
+"""Dashboard files and cookie login.
 
-Listens on 127.0.0.1:8082 (never 0.0.0.0). Published to the tailnet via `tailscale serve` on :80:
-    /login       -> http://127.0.0.1:8082/login
-    /logout      -> http://127.0.0.1:8082/logout
-    /auth/check  -> http://127.0.0.1:8082/auth/check
-OPNsense nginx exposes these as https://oldparishrecords.com/dashboard/{login,logout} and uses
-/auth/check as its auth_request target for everything else under /dashboard/.
+On sites this module is imported by lank-search. That one process serves
+/dashboard/... and search. Do not start the listener below there.
 
-Endpoints (paths as the box sees them; nginx strips the /dashboard prefix):
-    GET  /login        HTML form (hidden `next`); 303 to next if already signed in
-    POST /login        username/password/next (form-urlencoded) -> 303 + Set-Cookie, or 401 form, or 429
-    GET|POST /logout   clears the cookie, 303 /dashboard/login?loggedout=1
-    ANY  /auth/check   204 if opr_dash_session cookie is valid and unexpired, else 401 (empty body)
-Never sends WWW-Authenticate. Never logs passwords, cookies or tokens.
+Running this file directly still listens on 127.0.0.1:8080 for a proxy that
+strips /dashboard and forwards /login, /logout, /auth/check, /api/features,
+and files from out/. That is the Grok-box layout.
 
-Credential file (re-read when its mtime/size changes): OPR_CRED_FILE, lines `username=...` / `password=...`
-(split on the FIRST '=' or ':'; '#' lines ignored). Signing key: OPR_SESSION_KEY_FILE, created mode 600 with
-32 random bytes (hex) if missing, re-read when it changes -> replacing/deleting+restarting the key revokes all sessions.
-Token = base64url("v1|user|expiry|nonce") + "." + base64url(HMAC-SHA256(key, payload)).
+Never logs passwords, cookies, or tokens.
 """
-import base64, collections, hashlib, hmac, html, http.server, os, secrets, sys, threading, time, urllib.parse
+import base64, collections, hashlib, hmac, html, http.server, json, os, secrets, sys, threading, time, urllib.parse
 
-HOST = os.environ.get('OPR_AUTH_HOST', '127.0.0.1')
-PORT = int(os.environ.get('OPR_AUTH_PORT', '8082'))
+if not os.environ.get('OPR_CRED_FILE') and os.path.isfile('/home/sveit/opr-secrets/basicauth.txt'):
+    os.environ['OPR_CRED_FILE'] = '/home/sveit/opr-secrets/basicauth.txt'
+    os.environ.setdefault('OPR_SESSION_KEY_FILE', '/home/sveit/opr-secrets/session-key')
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(HERE, 'out')
+FEATURES = os.path.join(HERE, 'features_desc.json')
+HOST = os.environ.get('OPR_HTTP_HOST', '127.0.0.1')
+PORT = int(os.environ.get('OPR_HTTP_PORT', '8080'))
 CRED_FILE = os.environ.get('OPR_CRED_FILE', '/home/box/agent-data/secrets/opr-dashboard-basicauth.txt')
 KEY_FILE = os.environ.get('OPR_SESSION_KEY_FILE', '/home/box/agent-data/secrets/opr-dashboard-session-key')
 COOKIE = 'opr_dash_session'
@@ -31,15 +28,18 @@ COOKIE_PATH = '/dashboard/'
 TTL = int(os.environ.get('OPR_SESSION_TTL', str(24 * 3600)))
 DEFAULT_NEXT = '/dashboard/'
 LOGIN_URL = '/dashboard/login'
-WINDOW = 300                                     # rate-limit window (s)
+WINDOW = 300
 MAX_FAIL_IP = int(os.environ.get('OPR_MAX_FAIL_IP', '5'))
 MAX_FAIL_GLOBAL = int(os.environ.get('OPR_MAX_FAIL_GLOBAL', '30'))
 MAX_BODY = 8192
+ALLOWED_ORIGINS = {'http://grokbot-box.taileabb91.ts.net', 'https://grokbot-box.taileabb91.ts.net', 'http://grokbot-box',
+                   'https://oldparishrecords.com', 'https://www.oldparishrecords.com'}
 
-_lock = threading.Lock()
+_auth_lock = threading.Lock()
+_features_lock = threading.Lock()
 _fail_ip = collections.defaultdict(collections.deque)
 _fail_all = collections.deque()
-_cache = {}                                      # path -> (stat signature, value)
+_cache = {}
 
 
 def log(msg):
@@ -64,7 +64,7 @@ def load_cred():
             if cut < 0: continue
             k, v = line[:cut].strip().lower(), line[cut + 1:]
             if k.startswith('user'): user = v.strip()
-            elif k.startswith('pass'): pw = v          # password taken verbatim after the first separator
+            elif k.startswith('pass'): pw = v
     if not user or not pw: raise RuntimeError('credential file missing user/pass line')
     val = (user.encode(), pw.encode()); _cache[CRED_FILE] = (sig, val); return val
 
@@ -107,7 +107,7 @@ def token_ok(tok):
 
 def creds_ok(user, pw):
     cu, cp = load_cred()
-    h = lambda b: hashlib.sha256(b).digest()     # equal-length digests -> no length leak
+    h = lambda b: hashlib.sha256(b).digest()
     a = hmac.compare_digest(h(user.encode()), h(cu))
     b = hmac.compare_digest(h(pw.encode()), h(cp))
     return a & b
@@ -128,7 +128,7 @@ def prune(dq, now):
 
 def limited(ip):
     now = time.time()
-    with _lock:
+    with _auth_lock:
         prune(_fail_all, now); dq = _fail_ip.get(ip)
         if dq is not None:
             prune(dq, now)
@@ -138,10 +138,21 @@ def limited(ip):
 
 def record_fail(ip):
     now = time.time()
-    with _lock:
+    with _auth_lock:
         _fail_all.append(now); _fail_ip[ip].append(now)
-        if len(_fail_ip) > 10000:                  # memory bound
+        if len(_fail_ip) > 10000:
             for k in [k for k, d in _fail_ip.items() if not d or d[-1] <= now - WINDOW]: _fail_ip.pop(k, None)
+
+
+def load_features():
+    try: return json.load(open(FEATURES))
+    except Exception: return {}
+
+
+def origin_ok(headers):
+    o = headers.get('Origin')
+    if o is not None: return o in ALLOWED_ORIGINS
+    return headers.get('Referer', '').startswith(tuple(x + '/' for x in ALLOWED_ORIGINS))
 
 
 PAGE = """<!doctype html>
@@ -176,12 +187,15 @@ button:hover,button:focus-visible{background:#083a66}
 """
 
 
-class H(http.server.BaseHTTPRequestHandler):
-    server_version = 'opr-auth'
+class Handler(http.server.SimpleHTTPRequestHandler):
+    server_version = 'opr-dashboard'
     sys_version = ''
     protocol_version = 'HTTP/1.1'
 
-    def log_message(self, fmt, *args):            # path only, no query string, never bodies/cookies
+    def __init__(self, *a, **k):
+        super().__init__(*a, directory=OUT, **k)
+
+    def log_message(self, fmt, *args):
         log('%s %s %s %s' % (self.client_ip(), self.command, self.path.split('?', 1)[0], args[1] if len(args) > 1 else ''))
 
     def client_ip(self):
@@ -190,15 +204,18 @@ class H(http.server.BaseHTTPRequestHandler):
             ip = (self.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
         return ip[:64] or self.client_address[0]
 
-    def common_headers(self):
+    def only_path(self):
+        return urllib.parse.urlsplit(self.path).path
+
+    def auth_path(self):
+        return self.only_path() in ('/login', '/logout', '/auth/check')
+
+    def send_auth(self, code, body=b'', ctype=None, headers=()):
+        self.send_response(code)
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Robots-Tag', 'noindex, nofollow')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
-
-    def send(self, code, body=b'', ctype=None, headers=()):
-        self.send_response(code)
-        self.common_headers()
         for k, v in headers: self.send_header(k, v)
         if ctype:
             self.send_header('Content-Type', ctype)
@@ -209,14 +226,7 @@ class H(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != 'HEAD' and body: self.wfile.write(body)
 
-    def route(self):
-        u = urllib.parse.urlsplit(self.path)
-        return u.path, urllib.parse.parse_qs(u.query, keep_blank_values=True)
-
     def raw_next(self):
-        """`next` from the query. nginx sends login?next=$request_uri UNescaped (it has no urlencode), so a
-        raw next like /dashboard/x/?a=1&b=2 would be split by parse_qs. If the query starts with next= and the
-        value is not percent-encoded (does not start with %2F), take everything after next= verbatim."""
         qs = urllib.parse.urlsplit(self.path).query
         if qs.startswith('next='):
             v = qs[5:]
@@ -239,35 +249,30 @@ class H(http.server.BaseHTTPRequestHandler):
         m = '<div class="msg %s" role="alert">%s</div>' % (cls, html.escape(msg)) if msg else ''
         body = PAGE % {'msg': m, 'next': html.escape(nxt, quote=True), 'user': html.escape(user, quote=True),
                        'ufocus': '', 'pfocus': ''}
-        self.send(code, body.encode(), 'text/html; charset=utf-8')
+        self.send_auth(code, body.encode(), 'text/html; charset=utf-8')
 
     def cookie_header(self, value, max_age):
         return ('Set-Cookie', '%s=%s; Path=%s; HttpOnly; Secure; SameSite=Strict; Max-Age=%d' % (COOKIE, value, COOKIE_PATH, max_age))
 
-    # ---- methods ----
-    def do_HEAD(self): self.do_GET()
+    def auth_check(self):
+        self.send_auth(204 if self.signed_in() else 401)
 
-    def do_GET(self):
-        path, q = self.route()
-        if path == '/auth/check': return self.check()
-        if path == '/logout': return self.logout()
-        if path == '/login':
-            nxt = safe_next(self.raw_next())
-            if self.signed_in(): return self.send(303, headers=[('Location', nxt)])
-            if 'loggedout' in q: return self.page(200, nxt, 'You have been signed out.', 'ok')
-            return self.page(200, nxt)
-        self.send(404, b'not found\n', 'text/plain; charset=utf-8')
+    def auth_logout(self):
+        self.send_auth(303, headers=[self.cookie_header('', 0), ('Location', LOGIN_URL + '?loggedout=1')])
 
-    def do_POST(self):
-        path, _ = self.route()
-        if path == '/auth/check': return self.check()
-        if path == '/logout': return self.logout()
-        if path != '/login': return self.send(404, b'not found\n', 'text/plain; charset=utf-8')
+    def auth_login_get(self):
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
+        nxt = safe_next(self.raw_next())
+        if self.signed_in(): return self.send_auth(303, headers=[('Location', nxt)])
+        if 'loggedout' in q: return self.page(200, nxt, 'You have been signed out.', 'ok')
+        return self.page(200, nxt)
+
+    def auth_login_post(self):
         try: n = int(self.headers.get('Content-Length') or 0)
         except ValueError: n = -1
         if n < 0 or n > MAX_BODY:
             self.close_connection = True
-            return self.send(413, b'too large\n', 'text/plain; charset=utf-8')
+            return self.send_auth(413, b'too large\n', 'text/plain; charset=utf-8')
         raw = self.rfile.read(n) if n else b''
         f = urllib.parse.parse_qs(raw.decode('utf-8', 'replace'), keep_blank_values=True)
         user = (f.get('username') or [''])[0][:200]
@@ -284,24 +289,65 @@ class H(http.server.BaseHTTPRequestHandler):
         if not ok:
             record_fail(ip); log('login failed ip=%s' % ip)
             return self.page(401, nxt, 'Incorrect username or password.', user=user)
-        with _lock: _fail_ip.pop(ip, None)
+        with _auth_lock: _fail_ip.pop(ip, None)
         log('login ok ip=%s' % ip)
-        self.send(303, headers=[self.cookie_header(make_token(load_cred()[0]), TTL), ('Location', nxt)])
+        self.send_auth(303, headers=[self.cookie_header(make_token(load_cred()[0]), TTL), ('Location', nxt)])
 
-    def do_PUT(self): self.other()
-    def do_DELETE(self): self.other()
-    def do_PATCH(self): self.other()
-    def do_OPTIONS(self): self.other()
+    def cors(self):
+        o = self.headers.get('Origin')
+        if o in ALLOWED_ORIGINS:
+            self.send_header('Access-Control-Allow-Origin', o); self.send_header('Vary', 'Origin')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'); self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-OPR-Approve')
 
-    def other(self):
-        if self.route()[0] == '/auth/check': return self.check()
-        self.send(405, b'method not allowed\n', 'text/plain; charset=utf-8', [('Allow', 'GET, POST')])
+    def js(self, obj, code=200):
+        b = json.dumps(obj, ensure_ascii=False).encode(); self.send_response(code); self.cors()
+        self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Cache-Control', 'no-store'); self.send_header('Content-Length', str(len(b))); self.end_headers(); self.wfile.write(b)
 
-    def check(self):
-        self.send(204 if self.signed_in() else 401)
+    def features_post(self):
+        if not origin_ok(self.headers): return self.js({'error': 'origin/referer not allowed'}, 403)
+        if self.headers.get('X-OPR-Approve') != '1': return self.js({'error': 'missing X-OPR-Approve header'}, 403)
+        try:
+            n = int(self.headers.get('Content-Length', 0)); body = json.loads(self.rfile.read(min(n, 200000)) or b'{}')
+            key = str(body['feature'])[:300]; text = str(body.get('description', ''))[:20000]
+        except Exception: return self.js({'error': 'bad request'}, 400)
+        with _features_lock:
+            d = load_features()
+            if text.strip(): d[key] = text
+            else: d.pop(key, None)
+            tmp = FEATURES + '.tmp'; json.dump(d, open(tmp, 'w'), ensure_ascii=False, indent=1); os.replace(tmp, FEATURES)
+        self.js({'ok': True})
 
-    def logout(self):
-        self.send(303, headers=[self.cookie_header('', 0), ('Location', LOGIN_URL + '?loggedout=1')])
+    def do_HEAD(self):
+        if self.auth_path(): return self.do_GET()
+        return super().do_HEAD()
+
+    def do_GET(self):
+        path = self.only_path()
+        if path == '/auth/check': return self.auth_check()
+        if path == '/logout': return self.auth_logout()
+        if path == '/login': return self.auth_login_get()
+        if path == '/api/features': return self.js(load_features())
+        return super().do_GET()
+
+    def do_POST(self):
+        path = self.only_path()
+        if path == '/auth/check': return self.auth_check()
+        if path == '/logout': return self.auth_logout()
+        if path == '/login': return self.auth_login_post()
+        if path == '/api/features': return self.features_post()
+        self.send_auth(404, b'not found\n', 'text/plain; charset=utf-8')
+
+    def do_OPTIONS(self):
+        if self.only_path() == '/auth/check': return self.auth_check()
+        self.send_response(204); self.cors(); self.end_headers()
+
+    def do_PUT(self): self.reject()
+    def do_DELETE(self): self.reject()
+    def do_PATCH(self): self.reject()
+
+    def reject(self):
+        if self.only_path() == '/auth/check': return self.auth_check()
+        self.send_auth(405, b'method not allowed\n', 'text/plain; charset=utf-8', [('Allow', 'GET, POST')])
 
 
 class Server(http.server.ThreadingHTTPServer):
@@ -310,6 +356,7 @@ class Server(http.server.ThreadingHTTPServer):
 
 
 if __name__ == '__main__':
-    load_key(); load_cred()                        # fail fast; creates key if missing
-    log('opr dashboard auth listening on %s:%d' % (HOST, PORT))
-    Server((HOST, PORT), H).serve_forever()
+    os.makedirs(OUT, exist_ok=True)
+    load_key(); load_cred()
+    log('dashboard listening on %s:%d' % (HOST, PORT))
+    Server((HOST, PORT), Handler).serve_forever()

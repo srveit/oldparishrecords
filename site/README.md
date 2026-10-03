@@ -1,12 +1,19 @@
 # site/ — oldparishrecords.com source (as found on the Grok box)
 
-Public search site https://oldparishrecords.com/ : FastAPI app `lank-search` (uvicorn :8000, systemd
-`lank-search.service`) + static UI in `/opt/lank-search/static/`, Postgres 16 database `lank` (schema `lank`),
-on the Proxmox VM "oldparishrecords". Public TLS/reverse proxy is OPNsense nginx (config lives on OPNsense, not here).
+Public site https://oldparishrecords.com/ runs on the sites host. One Python process,
+systemd `lank-search.service`, serves search and the dashboard (files and cookie login)
+on port 8000. PostgreSQL and nginx are the other processes. `deploy/deploy-sites.sh`
+copies `lank-search/app.py` and `lank-search/dashboard_routes.py` to `/opt/lank-search/`.
+Search static files stay in `/opt/lank-search/static/`. Postgres database `lank`.
+Public TLS is OPNsense; path routing for the sites vhost is `deploy/nginx/`.
+To run this app on a workstation, use `../dev/run.sh` (local Postgres, empty `lank` database).
 
 | Path | What |
 |------|------|
-| `sitehost/app/app.py` | Newest backend (Site Host, 2026-09-25): adds `expanded_latin` full-text search. **Prepared, not confirmed deployed.** |
+| `lank-search/` | Live app (search, owner edits, and `/dashboard/` routes). This is what sites runs. |
+| `dashboard/` | Dashboard files, login helpers (`server.py`), and generated `out/`. Imported by lank-search; the 8080 listener is not started on sites. See `dashboard/README.md`. |
+| `dashboard-auth/` | Old separate login launcher. Sites does not start it. See `dashboard-auth/README.md`. |
+| `sitehost/app/app.py` | Older search app. Do not copy this over `/opt/lank-search/app.py`. |
 | `sitehost/app/app.py.box-orig` | Backend as deployed before that patch (sha baseline `run_on_vm.py` checks against). |
 | `sitehost/run_on_vm.py`, `sitehost/pve.py` | Deploy helpers: run SQL/app steps on the VM via Proxmox qemu guest agent (VM 107). |
 | `pve/search/app.py`, `pve/search/static/index.html` | Earlier copy of the backend (== box-orig) and the original v0 UI. |

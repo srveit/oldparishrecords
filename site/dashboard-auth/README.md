@@ -96,7 +96,7 @@ kill "$(cat /workspace/opr-dashboard-auth/auth.pid)"  # restart the server (wrap
 kill "$(cat /workspace/opr-dashboard-auth/run_auth.pid)"  # stop for good (wrapper stops the server too)
 tail -f /workspace/opr-dashboard-auth/auth.log        # IP, method, path (no query), status. Never passwords/cookies.
 ```
-There's no systemd on the box, so the service follows the pattern `dashboard/ensure_dashboard.sh` uses: nohup + an
+There's no systemd on the box, so the service follows the pattern `site/dashboard/ensure_dashboard.sh` uses: nohup + an
 idempotent ensure script. To bring it back after a box restart, call `ensure_auth.sh` at the end of
 `ensure_dashboard.sh`.
 
